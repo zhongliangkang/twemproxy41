@@ -20,6 +20,7 @@
 #include <nc_server.h>
 #include <proto/nc_proto.h>
 
+/*
 #define DEFINE_ACTION(_hash, _name) string(#_name),
 static struct string hash_strings[] = {
     HASH_CODEC( DEFINE_ACTION )
@@ -40,62 +41,77 @@ static struct string dist_strings[] = {
     null_string
 };
 #undef DEFINE_ACTION
+*/
 
 static struct command conf_commands[] = {
     { string("listen"),
       conf_set_listen,
+      conf_get_listen,
       offsetof(struct conf_pool, listen) },
 
     { string("hash"),
       conf_set_hash,
+      conf_get_hash,
       offsetof(struct conf_pool, hash) },
 
     { string("hash_tag"),
       conf_set_hashtag,
+      conf_get_string,
       offsetof(struct conf_pool, hash_tag) },
 
     { string("distribution"),
       conf_set_distribution,
+      conf_get_distribution,
       offsetof(struct conf_pool, distribution) },
 
     { string("timeout"),
       conf_set_num,
+      conf_get_num,
       offsetof(struct conf_pool, timeout) },
 
     { string("backlog"),
       conf_set_num,
+      conf_get_num,
       offsetof(struct conf_pool, backlog) },
 
     { string("client_connections"),
       conf_set_num,
+      conf_get_num,
       offsetof(struct conf_pool, client_connections) },
 
     { string("redis"),
       conf_set_bool,
+      conf_get_num,
       offsetof(struct conf_pool, redis) },
 
     { string("preconnect"),
       conf_set_bool,
+      conf_get_num,
       offsetof(struct conf_pool, preconnect) },
 
     { string("auto_eject_hosts"),
       conf_set_bool,
+      conf_get_num,
       offsetof(struct conf_pool, auto_eject_hosts) },
 
     { string("server_connections"),
       conf_set_num,
+      conf_get_num,
       offsetof(struct conf_pool, server_connections) },
 
     { string("server_retry_timeout"),
       conf_set_num,
+      conf_get_num,
       offsetof(struct conf_pool, server_retry_timeout) },
 
     { string("server_failure_limit"),
       conf_set_num,
+      conf_get_num,
       offsetof(struct conf_pool, server_failure_limit) },
 
     { string("servers"),
       conf_add_server,
+      conf_get_servers,
       offsetof(struct conf_pool, server) },
 
     null_command
@@ -1396,6 +1412,7 @@ conf_set_string(struct conf *cf, struct command *cmd, void *conf)
     return CONF_OK;
 }
 
+
 char *
 conf_set_listen(struct conf *cf, struct command *cmd, void *conf)
 {
@@ -1446,6 +1463,7 @@ conf_set_listen(struct conf *cf, struct command *cmd, void *conf)
         if (field->port < 0 || !nc_valid_port(field->port)) {
             return "has an invalid port in \"hostname:port\" format string";
         }
+
     }
 
     status = string_copy(&field->name, name, namelen);
@@ -1470,13 +1488,16 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     struct array *a;
     struct string *value;
     struct conf_server *field;
-    uint8_t *p, *q, *start;
-    uint8_t *pname, *addr, *port, *weight, *name;
-    uint32_t k, delimlen, pnamelen, addrlen, portlen, weightlen, namelen;
+    uint8_t *p, *q, *start, *tp;
+    uint8_t *pname, *addr, *port, *weight, *name, *papp, *seg, *pstatus, *p_seg_start, *p_seg_end;
+    uint32_t k, delimlen, pnamelen, addrlen, portlen, weightlen, namelen, pstatus_len, seg_len, app_len, seg_start_len, seg_end_len;
     struct string address;
-    char delim[] = " ::";
+    struct string app;
+    char delim[] = "   ::";
 
     string_init(&address);
+    string_init(&app);
+
     p = conf;
     a = (struct array *)(p + cmd->offset);
 
@@ -1488,6 +1509,8 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     conf_server_init(field);
 
     value = array_top(&cf->arg);
+
+    printf("content: %s\n",value->data);
 
     /* parse "hostname:port:weight [name]" or "/path/unix_socket:weight [name]" from the end */
     p = value->data + value->len - 1;
@@ -1501,7 +1524,7 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     name = NULL;
     namelen = 0;
 
-    delimlen = value->data[0] == '/' ? 2 : 3;
+    delimlen = value->data[0] == '/' ? 4 : 5;
 
     for (k = 0; k < sizeof(delim); k++) {
         q = nc_strrchr(p, start, delim[k]);
@@ -1518,16 +1541,37 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
 
         switch (k) {
         case 0:
-            name = q + 1;
-            namelen = (uint32_t)(p - name + 1);
+            pstatus = q+1;
+            pstatus_len = (uint32_t)(p - pstatus +1);
             break;
 
         case 1:
+            seg = q + 1;
+            seg_len = (uint32_t)(p - seg + 1);
+            tp = nc_strrchr(seg + seg_len, seg, '-');
+            if(tp == NULL){
+                    p_seg_start = p_seg_end = seg;
+                    seg_start_len = seg_end_len = seg_len;
+            }else{
+                    p_seg_start = seg;
+                    seg_start_len = (uint32_t)(tp - p_seg_start);
+                    p_seg_end = tp+1;
+                    seg_end_len = (uint32_t)(seg + seg_len - tp - 1);
+            }
+
+            break;
+
+        case 2:
+            papp = q + 1;
+            app_len = (uint32_t)(p - papp + 1);
+            break;
+
+        case 3:
             weight = q + 1;
             weightlen = (uint32_t)(p - weight + 1);
             break;
 
-        case 2:
+        case 4:
             port = q + 1;
             portlen = (uint32_t)(p - port + 1);
             break;
@@ -1538,6 +1582,9 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
 
         p = q - 1;
     }
+
+    printf("k delimlen: %d %d :status:%s, seg:%s,%s,%s, name:%s, port:%s\n",k,delimlen,pstatus,seg,p_seg_start,p_seg_end,name,port);
+    printf("%d %d\n",seg_start_len,seg_end_len);
 
     if (k != delimlen) {
         return "has an invalid \"hostname:port:weight [name]\"or \"/path/unix_socket:weight [name]\" format string";
@@ -1551,12 +1598,25 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
         return CONF_ERROR;
     }
 
+    status = string_copy(&field->app, papp, app_len);
+    if (status != NC_OK) {
+        array_pop(a);
+        return CONF_ERROR;
+    }
+
     addr = start;
     addrlen = (uint32_t)(p - start + 1);
 
+    field->seg_start= nc_atoi(p_seg_start, seg_start_len);
+    field->seg_end= nc_atoi(p_seg_end, seg_end_len);
     field->weight = nc_atoi(weight, weightlen);
     if (field->weight < 0) {
         return "has an invalid weight in \"hostname:port:weight [name]\" format string";
+    }
+
+    field->status= nc_atoi(pstatus, pstatus_len);
+    if (field->port < 0 ) {
+            return "has an invalid status in \"app segment status\" format string,should be 0 or 1";
     }
 
     if (value->data[0] != '/') {
@@ -1743,3 +1803,184 @@ conf_set_hashtag(struct conf *cf, struct command *cmd, void *conf)
 
     return CONF_OK;
 }
+
+char * 
+conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
+        //snprintf(result,80,"sp_name:%s\nsp_item:%s\n",sp_name,sp_item);
+        int n,m,i,j,offset=-1;
+        struct array *arr = sp;
+        char *rv;
+
+        struct string item;
+        item.data=sp_item;
+        item.len = strlen(sp_item);
+
+        n = array_n(arr);
+
+        //printf("ctx->stats->p_cf element num: %d\n",n);
+        for(i=0;i<n;i++){
+                struct conf_pool *tcf = array_get(arr,i);
+                //printf("sname: %s\n",tcf->name.data);
+                //in this server pool
+                if(!strcmp(sp_name, tcf->name.data)){
+                         m = array_n(&tcf->server);
+                        /*for(j=0;j<m;j++){
+                                struct server *tss = array_get(&tcf->server,j);
+                                printf("%d name : %s\n",j,tss->name.data);
+                        } */
+
+                        rv = sp_get_config_by_string(tcf, &item, result);
+                        if( rv != NC_OK){
+                            log_error("get config by string fail: %s",sp_item );
+                            return NC_ERROR;
+                        }
+                        //printf("get config success:%s -> %s is %s\n",sp_name,sp_item,result);
+
+                }
+        }
+
+        return NC_OK;
+}
+
+char * conf_get_string( struct conf_pool *sp, struct command *spc, char * data){
+    uint8_t *p;
+    struct string *field ;
+
+    p = sp;
+    field = (struct string *)(p + spc->offset);
+
+    if( field->len){
+        snprintf(data, field->len,"%s",field->data);
+        return  NC_OK;
+    }
+    
+    //err
+    return "null config item found!";
+}
+
+char * conf_get_listen( struct conf_pool *sp, struct command *spc, char * data){
+    uint8_t *p;
+    struct conf_listen *field = NULL;
+
+    p = sp;
+    field = (struct conf_listen *)(p + spc->offset);
+
+    if( field != NULL){
+        snprintf(data, field->pname.len,"%s", field->pname.data);
+        return  NC_OK;
+    }
+    
+    //err
+    return "null config item found!";
+}
+
+
+char * conf_get_num( struct conf_pool *sp, struct command *spc, char * data){
+    uint8_t *p;
+    int *field = NULL;
+
+    p = sp;
+    field = (int *)(p + spc->offset);
+
+    if( field != NULL){
+        snprintf(data,16,"%d",*field);
+        return  NC_OK;
+    }
+    
+    //err
+    return "null config item found!";
+}
+
+
+char * conf_get_hash( struct conf_pool *sp, struct command *spc, char * data){
+    uint8_t *p;
+    hash_type_t *field = NULL;
+    struct string *hs;
+
+    p = sp;
+    field = (hash_type_t *)(p + spc->offset);
+
+
+    if( field != NULL){
+        hs = hash_strings + (*field);
+        snprintf(data, sizeof(hs->data),"%s",hs->data);
+        return  NC_OK;
+    }
+    
+    //err
+    return "null config item found!";
+}
+
+char * conf_get_distribution( struct conf_pool *sp, struct command *spc, char * data){
+    uint8_t *p;
+    dist_type_t *field = NULL;
+    struct string *hs;
+
+    p = sp;
+    field = (dist_type_t *)(p + spc->offset);
+
+    hs = dist_strings + *field;
+
+    if( field != NULL){
+        snprintf(data, sizeof(hs->data),"%s",hs->data);
+        return  NC_OK;
+    }
+    
+    //err
+    return "null config item found!";
+}
+
+char * sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * result){
+    struct  command * spp;
+
+    for(spp = conf_commands; spp->name.len != 0; spp++){
+        char *rv;
+
+        if(string_compare( item, &spp->name) !=0){
+            continue;
+        }
+
+        rv = spp->get(sp, spp, result);
+
+        if(rv != NC_OK){
+            log_error("sp_get_conf_by_string error: \"%.*s\" %s", item->len, item->data, rv);
+            return NC_ERROR;
+        }
+
+        return NC_OK;
+    }
+
+    log_error("sp_get_conf_by_string error: \"%.*s\" is unkown",item->len, item->data);
+
+    return NC_ERROR;
+}
+
+char *conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
+    uint8_t *p;
+    struct array *arr= NULL;
+    int svr_num=0;
+    int i;
+    char *strp;
+
+    struct string *hs;
+
+    p = cf;
+    arr = (struct array *)(p + cmd->offset);
+    svr_num = array_n(arr);
+
+    strp = result;
+
+    for (i = 0; i < svr_num; i++) {
+        struct conf_server *cs = array_get(arr, i);
+        snprintf(strp, cs->pname.len + 2,"%s\n",cs->pname.data);
+        //printf("==== %s\n",cs->pname.data);
+        strp = result+strlen(result);
+    }
+
+    return NC_OK;
+   
+    //err
+    return "null config item found!";
+
+}
+

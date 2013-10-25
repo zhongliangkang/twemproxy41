@@ -743,6 +743,7 @@ stats_send_rsp(struct stats *st)
     rstatus_t status;
     ssize_t n;
     int sd;
+    char result[1024];
 
     status = stats_make_rsp(st);
     if (status != NC_OK) {
@@ -757,6 +758,34 @@ stats_send_rsp(struct stats *st)
 
     log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
 
+    printf("\n you can modify/get config here\n");
+    /*
+    conf_get_by_item("alpha","listen",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","hash",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","distribution",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","auto_eject_hosts",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","server_retry_timeout",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","server_failure_limit",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","redis",result, st->p_cf);
+    printf("get result: %s\n",result);
+
+    */
+    conf_get_by_item("alpha","servers",result, st->p_cf);
+    printf("get result: %s\n",result);
+
+    result[0]=0;
+
+   /* conf_get_by_item("aaalpha","redis",result, st->p_cf);
+    printf("get result: %s\n",result);
+    conf_get_by_item("alpha","rafadsfaedis",result, st->p_cf);
+    printf("get result: %s\n",result);
+    */
     n = nc_sendn(sd, st->buf.data, st->buf.len);
     if (n < 0) {
         log_error("send stats on sd %d failed: %s", sd, strerror(errno));

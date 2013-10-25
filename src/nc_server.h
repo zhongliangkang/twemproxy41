@@ -140,4 +140,26 @@ void server_pool_disconnect(struct context *ctx);
 rstatus_t server_pool_init(struct array *server_pool, struct array *conf_pool, struct context *ctx);
 void server_pool_deinit(struct array *server_pool);
 
+
+/*
+struct sp_config{
+    struct string name;
+    char   *(*get)(struct server_pool *sp, struct sp_config *spc, char *data);
+    int    offset;
+};
+
+
+char * sp_get_string( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_num_u16( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_num_u32( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_num_i32( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_num_i64( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_hash( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_distribution( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_bool( struct server_pool *sp, struct sp_config *spc, char * data);
+
+#define null_config { null_string, NULL, 0 }
+*/
+
+
 #endif

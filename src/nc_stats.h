@@ -112,6 +112,8 @@ struct stats {
 
     volatile int        aggregate;      /* shadow (b) aggregate? */
     volatile int        updated;        /* current (a) updated? */
+
+    void  *             p_cf;          /* point to config instance */
 };
 
 #define DEFINE_ACTION(_name, _type, _desc) STATS_POOL_##_name,

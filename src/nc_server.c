@@ -21,6 +21,59 @@
 #include <nc_core.h>
 #include <nc_server.h>
 #include <nc_conf.h>
+#include <hashkit/nc_hashkit.h>
+
+/*
+static struct sp_config  sp_config_arr[]={
+    { string("listen"),
+        sp_get_string,
+        offsetof(struct server_pool, addrstr) },
+    { string("name"),
+        sp_get_string,
+        offsetof(struct server_pool, name ) },
+    { string("hash_tag"),
+        sp_get_string,
+        offsetof(struct server_pool, hash_tag) },
+
+    { string("port"),
+        sp_get_num_u16,
+        offsetof(struct server_pool, port ) },
+    { string("server_retry_timeout"),
+        sp_get_num_i64,
+        offsetof(struct server_pool, server_retry_timeout) },
+    { string("server_failure_limit"),
+        sp_get_num_u32,
+        offsetof(struct server_pool, server_failure_limit) },
+    { string("backlog"),
+        sp_get_num_i32,
+        offsetof(struct server_pool, backlog) },
+    { string("server_connections"),
+        sp_get_num_u32,
+        offsetof(struct server_pool, server_connections ) },
+
+    { string("redis"),
+        sp_get_bool,
+        offsetof(struct server_pool, redis) },
+    { string("auto_eject_hosts"),
+        sp_get_bool,
+        offsetof(struct server_pool, auto_eject_hosts ) },
+    { string("auto_eject_hosts"),
+        sp_get_bool,
+        offsetof(struct server_pool, auto_eject_hosts) },
+
+    { string("hash"),
+        sp_get_hash,
+        offsetof(struct server_pool, key_hash_type) },
+
+    { string("distribution"),
+        sp_get_distribution,
+        offsetof(struct server_pool, dist_type) },
+
+    null_config
+};
+
+*/
+
 
 void
 server_ref(struct conn *conn, void *owner)
@@ -632,6 +685,10 @@ server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
         idx = random_dispatch(pool->continuum, pool->ncontinuum, 0);
         break;
 
+    case DIST_MODHASH:
+        idx = modhash_dispatch(pool->continuum, pool->ncontinuum, 0);
+        break;
+
     default:
         NOT_REACHED();
         return NULL;
@@ -757,6 +814,9 @@ server_pool_run(struct server_pool *pool)
     case DIST_RANDOM:
         return random_update(pool);
 
+    case DIST_MODHASH:
+        return modhash_update(pool);
+
     default:
         NOT_REACHED();
         return NC_ERROR;
@@ -843,3 +903,7 @@ server_pool_deinit(struct array *server_pool)
 
     log_debug(LOG_DEBUG, "deinit %"PRIu32" pools", npool);
 }
+
+
+
+

@@ -29,6 +29,7 @@ core_ctx_create(struct instance *nci)
 {
     rstatus_t status;
     struct context *ctx;
+    int n,i,j,m;
 
     ctx = nc_alloc(sizeof(*ctx));
     if (ctx == NULL) {
@@ -60,6 +61,23 @@ core_ctx_create(struct instance *nci)
     /* create stats per server pool */
     ctx->stats = stats_create(nci->stats_port, nci->stats_addr, nci->stats_interval,
                               nci->hostname, &ctx->pool);
+
+    ctx->stats->p_cf = &ctx->cf->pool;
+    n = array_n(&ctx->pool);
+    printf("ctx->stats->p_cf element num: %d\n",n);
+
+    for(i=0;i<n;i++){
+            struct server_pool *tcf = array_get(&ctx->pool,i);
+            printf("fname: %s\n",tcf->name.data);
+
+            m = array_n(&tcf->server);
+            for(j=0;j<m;j++){
+                    struct server *tss = array_get(&tcf->server,j);
+                    printf("%d name : %s\n",j,tss->name.data);
+            }
+    }
+    
+
     if (ctx->stats == NULL) {
         server_pool_deinit(&ctx->pool);
         conf_destroy(ctx->cf);
