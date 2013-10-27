@@ -743,6 +743,7 @@ stats_send_rsp(struct stats *st)
     rstatus_t status;
     ssize_t n;
     int sd;
+	char recv_command[80];
 
     status = stats_make_rsp(st);
     if (status != NC_OK) {
@@ -755,9 +756,31 @@ stats_send_rsp(struct stats *st)
         return NC_ERROR;
     }
 
-    log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+    n = recv(sd, recv_command, 80, 0);
+    if(n>=2 && recv_command[n-2] == CR && recv_command[n-1] == LF){
+        recv_command[n-2]=recv_command[n-1]=0;
+    }else if(n>=1 && recv_command[n-1] == LF){
+        recv_command[n-1]=0;
+    }
 
-    n = nc_sendn(sd, st->buf.data, st->buf.len);
+    /* get rid of head,tail space */
+    nc_trim(recv_command);
+    log_debug(LOG_VERB,"receive length:%d, command:%s======%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+
+    /* get the stats info of twemproxy */
+    if(!strcmp(recv_command,"stats")){
+        log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+        n = nc_sendn(sd, st->buf.data, st->buf.len);
+    }else if(!strcmp(recv_command,"get config")){
+		char str_e[] = "get config from nutcracker.yml\n";
+        log_debug(LOG_VERB,"%s",str_e);
+        n = nc_sendn(sd, str_e, strlen(str_e));
+    }else {
+		char str_e[] = "unkown command.\n";
+        log_debug(LOG_VERB,"%s",str_e);
+        n = nc_sendn(sd, str_e, strlen(str_e));
+	}
+
     if (n < 0) {
         log_error("send stats on sd %d failed: %s", sd, strerror(errno));
         close(sd);
