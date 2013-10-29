@@ -52,6 +52,9 @@
 #define STATS_PORT      22222
 #define STATS_INTERVAL  (30 * 1000) /* in msec */
 
+#define MAX_COMMAND_FIELD  7  /* max command field ,here our max fields in command is 6 */
+#define MAX_COMMAND_LENGTH 20 /* max command field ,here our max fields in command is 6 */
+
 typedef enum stats_type {
     STATS_INVALID,
     STATS_COUNTER,    /* monotonic accumulator */
@@ -114,6 +117,7 @@ struct stats {
     volatile int        updated;        /* current (a) updated? */
 
     void  *             p_cf;          /* point to config instance */
+    void  *             p_sp;          /* point to server pool */
 };
 
 #define DEFINE_ACTION(_name, _type, _desc) STATS_POOL_##_name,

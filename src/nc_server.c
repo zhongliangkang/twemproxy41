@@ -23,9 +23,10 @@
 #include <nc_conf.h>
 #include <hashkit/nc_hashkit.h>
 
-/*
+
 static struct sp_config  sp_config_arr[]={
-    { string("listen"),
+    /*
+    { string("addrstr"),
         sp_get_string,
         offsetof(struct server_pool, addrstr) },
     { string("name"),
@@ -51,28 +52,54 @@ static struct sp_config  sp_config_arr[]={
         sp_get_num_u32,
         offsetof(struct server_pool, server_connections ) },
 
-    { string("redis"),
-        sp_get_bool,
-        offsetof(struct server_pool, redis) },
-    { string("auto_eject_hosts"),
-        sp_get_bool,
-        offsetof(struct server_pool, auto_eject_hosts ) },
-    { string("auto_eject_hosts"),
-        sp_get_bool,
-        offsetof(struct server_pool, auto_eject_hosts) },
-
-    { string("hash"),
+    { string("key_hash_type"),
         sp_get_hash,
         offsetof(struct server_pool, key_hash_type) },
 
-    { string("distribution"),
+    { string("dist_type"),
         sp_get_distribution,
         offsetof(struct server_pool, dist_type) },
+        */
+    { string("server"),
+        sp_get_server,
+        offsetof(struct server_pool, server) },
 
     null_config
 };
 
-*/
+
+/* copy server to another */
+static rstatus_t
+nc_server_copy(struct server *old, struct server *new){
+    struct server *p,*q;
+    p = old;
+    q = new;
+
+    q->idx  = p->idx;
+    q->owner= p->owner;
+
+    q->pname= p->pname;
+    q->name = p->name;
+    q->port = p->port;
+    q->weight   = p->weight;
+
+    q->family   = p->family;
+    q->addrlen  = p->addrlen;
+    q->addr     = p->addr;
+
+    q->app      = p->app;
+    q->status   = p->status;
+    q->seg_start= p->seg_start;
+    q->seg_end  = p->seg_end;
+
+    q->ns_conn_q= p->ns_conn_q;
+    q->s_conn_q = p->s_conn_q;
+
+    q->next_retry   = p->next_retry;
+    q->failure_count= p->failure_count;
+
+    return NC_OK;
+}
 
 
 void
@@ -905,5 +932,309 @@ server_pool_deinit(struct array *server_pool)
 }
 
 
+
+char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result){
+    uint8_t *p;
+    struct array *arr= NULL; 
+    int svr_num=0;
+    int i;
+    char *strp;
+
+    p = sp; 
+    arr = (struct array *)(p + spc->offset);
+    svr_num = array_n(arr);
+        
+    strp = result;
+        
+    for (i = 0; i < svr_num; i++) {
+        struct server *cs = array_get(arr, i);
+        snprintf(strp, 1024,"%s %s %d-%d %d\n",cs->name.data,cs->app.data,cs->seg_start,cs->seg_end,cs->status);
+        strp = result+strlen(result);
+    }
+
+    return NC_OK;
+}
+
+
+int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
+        int n,m,i;
+        struct array *arr = sp;
+        int rt;
+
+        struct string item;
+        item.data=sp_item;
+        item.len = strlen(sp_item);
+
+        n = array_n(arr);
+
+        //printf("ctx->stats->p_cf element num: %d\n",n);
+        for(i=0;i<n;i++){
+                struct server_pool *tcf = array_get(arr,i);
+                //printf("sname: %s\n",tcf->name.data);
+                //in this server pool
+                if(!strcmp(sp_name, tcf->name.data)){
+                         m = array_n(&tcf->server);
+                        /*for(j=0;j<m;j++){
+                                struct server *tss = array_get(&tcf->server,j);
+                                printf("%d name : %s\n",j,tss->name.data);
+                        } */
+
+                        rt = server_pool_get_config_by_string(tcf, &item, result);
+                        if( rt != NC_OK){
+                            log_error("get config by string fail: %s\n",sp_item );
+                            snprintf(result,80,"get config by string fail: %s\n",sp_item );
+                            return NC_ERROR;
+                        }else{
+                            return NC_OK;
+                        }
+
+                }
+        }
+
+        // not found the config
+        snprintf(result,80,"cannot find redis pool %s\n",sp_name );
+        return NC_ERROR;
+
+}
+
+int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result){
+    struct  sp_config * spp;
+
+    log_debug(LOG_VERB, " in server_pool_get_config_by_string");
+    for(spp = sp_config_arr ; spp->name.len != 0; spp++){
+        int rv = 0;
+
+        if(string_compare( item, &spp->name) !=0){
+            continue;
+        }
+
+        rv = spp->get(sp, spp, result);
+
+        if(rv != NC_OK){
+            log_error("server_pool_get_config_by_string error: \"%.*s\" %s", item->len, item->data, rv);
+            return NC_ERROR;
+        }
+
+        return NC_OK;
+    }
+
+    log_error("server_pool_get_config_by_string error: \"%.*s\" is unkown",item->len, item->data);
+
+    return NC_ERROR;
+
+}
+
+int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result){
+    int n,m,i;
+    struct array *arr = sp;
+    int rt;
+    struct string item;
+
+    log_debug(LOG_VERB, " in nc_add_a_server");
+
+    item.data= inst;
+    item.len = strlen(inst);
+
+    n = array_n(arr);
+
+    for(i=0;i<n;i++){
+        struct server_pool *tcf = array_get(arr,i);
+        //in this server pool
+        if(!strcmp(sp_name, tcf->name.data)){
+            m = array_n(&tcf->server);
+            /*for(j=0;j<m;j++){
+                struct server *tss = array_get(&tcf->server,j);
+                printf("%d name : %s\n",j,tss->name.data);
+            } */
+            log_debug(LOG_VERB,"sp name: %s, inst: %s, app:%s, seqs: %s, status: %s\n", sp_name,inst,app,seqs,status);
+
+            /* step1: precheck  */
+            rt = nc_add_new_server_precheck(tcf,inst,app,seqs,status,result);
+
+            if( rt != NC_OK){
+                log_error("new add server precheck failed: %s\n",sp_name);
+                return NC_ERROR;
+            }
+
+            return NC_OK;
+
+        }
+    }
+
+    // not found the config
+    snprintf(result,80,"cannot find redis pool %s\n",sp_name );
+    return NC_ERROR;
+
+}
+
+/* precheck for adding a server to a server_pool */
+int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * seqs, char* status, char* result){
+    struct string sp_app;
+    struct array *arr     = &sp->server;
+    struct array new_servers;
+    struct array *new_svrs, *old_svrs;
+    struct server *svr, *new_svr;
+
+    int n_old_svrs = array_n(arr);
+    int n_new_svrs = n_old_svrs + 1;
+    int port,seg_start,seg_end,istatus, i,nserver;
+    int ip_len,port_len,seg_start_len;
+    struct sockinfo *ski;
+    rstatus_t ret;
+
+    struct string addr;
+
+    //get the first server info
+    svr = array_get(arr,0);
+    sp_app = svr->app;
+
+    // app is different
+    if(strcmp(app,sp_app.data)){
+        snprintf(result,1000,"new add app '%s' is different from app in server pool '%s' \n",app,sp_app.data);
+        return NC_ERROR;
+    }
+
+
+    ip_len=0;
+
+    while(ip_len < strlen(inst) && inst[ip_len] != ':') ip_len ++;
+
+    port_len =0;
+    while(ip_len+port_len+1 <strlen(inst) && inst[ip_len+port_len+1]!=':') port_len++;
+
+    if(ip_len == 0 || port_len == 0){
+        snprintf(result,1000," %s not a valid instance (IP:PORT[:WEIGHT])\n",inst);
+        return NC_ERROR;
+    }
+
+    port = nc_atoi(inst+ip_len+1,port_len);
+    
+    seg_start_len=0;
+    while(seg_start_len < strlen(seqs) && seqs[seg_start_len] != '-') seg_start_len++;
+
+    if(seg_start_len == strlen(seqs)){
+        seg_start = seg_end = nc_atoi(seqs ,seg_start_len);
+    }else{
+        seg_start = nc_atoi(seqs ,seg_start_len);
+        seg_end   = nc_atoi(seqs+seg_start_len+1,strlen(seqs)-seg_start_len-1);
+    }
+
+    istatus = nc_atoi(status,1);
+
+    if(port <0 || seg_start<0 || seg_end<0 || istatus<0){
+        snprintf(result,1000," config error: %s %s %s %s\n",inst,app,seqs,status);
+        return NC_ERROR;
+    }
+
+    if(seg_start > seg_end){
+        snprintf(result,1000,"seg_start cannot bigger than seg_end,start: %d, end: %d\n",seg_start,seg_end);
+        return NC_ERROR;
+    }
+
+
+    /* precheck ok,start to add new server */
+    //snprintf(result,1000,"check ok. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . seqstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
+
+    // init new servers
+    array_null(&new_servers);
+    new_svrs = &new_servers;
+
+    // allocate new mem
+    ret = array_init(new_svrs, n_new_svrs, sizeof(struct server));
+    if(ret != NC_OK){
+        return NC_ERROR;
+    }
+
+    for(i = 0; i < n_old_svrs; i++){
+        svr     = array_get(arr,i);
+        new_svr = array_push(new_svrs);
+        nc_server_copy(svr,new_svr);
+    }
+    // init the new added svr info
+    new_svr = array_push(new_svrs);
+
+    ASSERT(new_svr);
+    
+    new_svr->idx = array_idx(new_svrs, new_svr);
+    new_svr->owner = NULL;
+
+    string_init(&new_svr->pname);
+    ret = string_copy(&new_svr->pname, inst,strlen(inst));
+    if(ret != NC_OK){
+        return NC_ERROR;
+    }
+
+    string_init(&new_svr->name);
+    ret = string_copy(&new_svr->name , inst,strlen(inst));
+    if(ret != NC_OK){
+        return NC_ERROR;
+    }
+
+    new_svr->port  = port;
+    new_svr->weight= 1;
+
+    /* sockinfo */
+    ski = (void *)nc_alloc(sizeof(struct sockinfo));
+    if( !ski){
+        return NC_ERROR;
+    }
+
+    string_init(&addr);
+    ret = string_copy(&addr, inst, ip_len);
+    if(ret != NC_OK){
+        return ret;
+    }
+
+    ret = nc_resolve(&addr, port, ski);
+    if(ret != NC_OK){
+        return ret;
+    }
+
+    new_svr->family = ski->family;
+    new_svr->addrlen= ski->addrlen;
+    new_svr->addr   = (struct sockaddr*)&ski->addr;
+
+    /* app */
+    string_init(&new_svr->app);
+    string_copy(&new_svr->app,app,strlen(app));
+    new_svr->seg_start = seg_start;
+    new_svr->seg_end   = seg_end;
+    new_svr->status    = istatus;
+
+    new_svr->ns_conn_q = 0;
+    TAILQ_INIT(&new_svr->s_conn_q);
+
+    new_svr->next_retry = 0LL;
+    new_svr->failure_count = 0;
+
+    if (ret != NC_OK) {
+        return ret;
+    }
+
+    old_svrs = &sp->server;
+
+    // if the old sp is modified, deinit the server ,or set the is_modified flag to 1
+    if(sp->is_modified){
+
+        for (i = 0, nserver = array_n(old_svrs); i < nserver; i++) {
+            struct server *s;
+            s = array_pop(old_svrs);
+            ASSERT(TAILQ_EMPTY(&s->s_conn_q) && s->ns_conn_q == 0);
+        }
+
+        server_deinit(old_svrs);
+        old_svrs->nelem = new_svrs->nelem;
+        old_svrs->size  = new_svrs->size;
+        old_svrs->elem  = new_svrs->elem;
+        old_svrs->nalloc= new_svrs->nalloc;
+
+        log_debug(LOG_DEBUG, "deinit old server info");
+    }else{
+        sp->is_modified = 1;
+        log_debug(LOG_DEBUG, "set is_modified flag to 1");
+    }
+
+    return NC_OK;
+}
 
 

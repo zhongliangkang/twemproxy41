@@ -545,7 +545,7 @@ nc_run(struct instance *nci)
             break;
         }
 		/* reload config */
-        reload_config(nci,ctx);
+        /* reload_config(nci,ctx); */
     }
 
     core_stop(ctx);

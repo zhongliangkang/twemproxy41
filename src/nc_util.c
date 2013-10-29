@@ -622,3 +622,23 @@ nc_unresolve_desc(int sd)
 
     return nc_unresolve_addr(addr, addrlen);
 }
+
+void nc_ltrim(char *s){
+    char *p;
+    p=s;
+    while( *p == ' ' || *p == '\t') { p++; };
+    strcpy(s,p);
+}
+
+void nc_rtrim(char *s){
+    int i;
+    i = strlen(s) - 1;
+    while((s[i] ==' ' || s[i] == '\t') && i>=0 ) { i--; }
+    s[i+1] = '\0';
+
+}
+
+void nc_trim(char *s){
+    nc_ltrim(s);
+    nc_rtrim(s);
+}

@@ -63,8 +63,9 @@ core_ctx_create(struct instance *nci)
                               nci->hostname, &ctx->pool);
 
     ctx->stats->p_cf = &ctx->cf->pool;
+    ctx->stats->p_sp = &ctx->pool;
     n = array_n(&ctx->pool);
-    printf("ctx->stats->p_cf element num: %d\n",n);
+    printf("ctx->stats->p_sp element num: %d\n",n);
 
     for(i=0;i<n;i++){
             struct server_pool *tcf = array_get(&ctx->pool,i);

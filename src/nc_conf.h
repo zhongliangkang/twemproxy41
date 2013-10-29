@@ -168,7 +168,10 @@ rstatus_t conf_pool_each_transform(void *elem, void *data);
 struct conf *conf_create(char *filename);
 void conf_destroy(struct conf *cf);
 
-char * conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
+int conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 
-char * sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
+int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
+
+rstatus_t  sp_write_conf_file(struct conf_pool *cp, struct server_pool *sp, char* file_name);
+
 #endif

@@ -744,6 +744,10 @@ stats_send_rsp(struct stats *st)
     ssize_t n;
     int sd;
     char result[1024];
+    char recv_command[MAX_COMMAND_LENGTH];
+    char *cmd_p[MAX_COMMAND_FIELD];
+    char *p,*key_point;
+    int n_field;
 
     status = stats_make_rsp(st);
     if (status != NC_OK) {
@@ -756,37 +760,77 @@ stats_send_rsp(struct stats *st)
         return NC_ERROR;
     }
 
-    log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+    n = recv(sd, recv_command, 80, 0);
+    if(n>=2 && recv_command[n-2] == CR && recv_command[n-1] == LF){
+        recv_command[n-2]=recv_command[n-1]=0;
+    }else if(n>=1 && recv_command[n-1] == LF){
+        recv_command[n-1]=0;
+    }
 
-    printf("\n you can modify/get config here\n");
-    /*
-    conf_get_by_item("alpha","listen",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","hash",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","distribution",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","auto_eject_hosts",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","server_retry_timeout",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","server_failure_limit",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","redis",result, st->p_cf);
-    printf("get result: %s\n",result);
+    /* get rid of head,tail space */
+    nc_trim(recv_command);
+    log_debug(LOG_VERB,"receive length:%d, command:%s======%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
 
-    */
-    conf_get_by_item("alpha","servers",result, st->p_cf);
-    printf("get result: %s\n",result);
 
+    // cut the command into many fields
+    p = recv_command;
+    n_field = 0;
+    while(p){
+        while(key_point = strsep(&p, " \t")){
+            if(*key_point == 0)
+                continue;
+            else
+                break;
+        }
+        cmd_p[n_field] = key_point;
+
+        printf("token: %s\n",cmd_p[n_field]);
+        n_field++;
+
+        // too many fields
+        if(n_field >= MAX_COMMAND_FIELD){
+            char str_e[] = "error command: too many field in command\n";
+            n = nc_sendn(sd, str_e, strlen(str_e));
+            goto  end;
+        }
+    }
+
+    /* get the stats info of twemproxy */
+    if(!strcmp(cmd_p[0],"stats")){
+        log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+        n = nc_sendn(sd, st->buf.data, st->buf.len);
+        
+    }else if(!strcmp(cmd_p[0],"get") && n_field == 3){   /* get config */
+
+        int rt;
+        if(!strcmp(cmd_p[2],"servers")){
+            rt  = sp_get_by_item(cmd_p[1],"server",result, st->p_sp);
+        }else{
+            rt  = conf_get_by_item(cmd_p[1],cmd_p[2],result, st->p_cf);
+        }
+        if(rt != NC_OK){
+            log_error("err ret:%d . msg: %s\n",rt, result);
+        }
+        n = nc_sendn(sd, result, strlen(result));
+    }else if(!strcmp(cmd_p[0],"add") && n_field == 6){         /* add server */
+        int rt;
+        rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
+        printf("add! ret:%s\n",result);
+        n = nc_sendn(sd, result, strlen(result));
+    }else if(!strcmp(cmd_p[0],"change")){
+        printf("change!\n");
+    }else if(!strcmp(cmd_p[0],"delete")){
+        printf("delete!\n");
+    }else{
+		char str_e[] = "unkown command.\n";
+            log_debug(LOG_VERB,"%s",str_e);
+        n = nc_sendn(sd, str_e, strlen(str_e));
+
+	}
+
+    
     result[0]=0;
-
-   /* conf_get_by_item("aaalpha","redis",result, st->p_cf);
-    printf("get result: %s\n",result);
-    conf_get_by_item("alpha","rafadsfaedis",result, st->p_cf);
-    printf("get result: %s\n",result);
-    */
-    n = nc_sendn(sd, st->buf.data, st->buf.len);
+end:
     if (n < 0) {
         log_error("send stats on sd %d failed: %s", sd, strerror(errno));
         close(sd);
@@ -925,6 +969,8 @@ stats_create(uint16_t stats_port, char *stats_ip, int stats_interval,
 
     st->tid = (pthread_t) -1;
     st->sd = -1;
+    st->p_sp = NULL;
+    st->p_cf = NULL;
 
     string_set_text(&st->service_str, "service");
     string_set_text(&st->service, "nutcracker");

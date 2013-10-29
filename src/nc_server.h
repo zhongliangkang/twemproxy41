@@ -78,6 +78,11 @@ struct server {
     socklen_t          addrlen;       /* socket length */
     struct sockaddr    *addr;         /* socket address (ref in conf_server) */
 
+    struct string      app;     /* app info */
+    int                status;  /* instance status */
+    int                seg_start; /* start of segment */
+    int                seg_end  ; /* start of segment */
+
     uint32_t           ns_conn_q;     /* # server connection */
     struct conn_tqh    s_conn_q;      /* server connection q */
 
@@ -94,6 +99,8 @@ struct server_pool {
     struct conn_tqh    c_conn_q;             /* client connection q */
 
     struct array       server;               /* server[] */
+    int                is_modified;          /* if set to 1, the server info is reallocated */
+
     uint32_t           ncontinuum;           /* # continuum points */
     uint32_t           nserver_continuum;    /* # servers - live and dead on continuum (const) */
     struct continuum   *continuum;           /* continuum */
@@ -141,7 +148,7 @@ rstatus_t server_pool_init(struct array *server_pool, struct array *conf_pool, s
 void server_pool_deinit(struct array *server_pool);
 
 
-/*
+
 struct sp_config{
     struct string name;
     char   *(*get)(struct server_pool *sp, struct sp_config *spc, char *data);
@@ -149,17 +156,24 @@ struct sp_config{
 };
 
 
-char * sp_get_string( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_num_u16( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_num_u32( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_num_i32( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_num_i64( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_hash( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_distribution( struct server_pool *sp, struct sp_config *spc, char * data);
-char * sp_get_bool( struct server_pool *sp, struct sp_config *spc, char * data);
+char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result);
 
+int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 #define null_config { null_string, NULL, 0 }
-*/
 
+
+int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result);
+
+
+/* 
+ * parameters:
+ * sp: server_pool array
+ * sp_name: server pool name
+ * inst: redis instance in format of IP:PORT
+ * app : app  name
+ * seqs: hash sequence of START-END
+ * status: 0 or 1
+ * */
+int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
 
 #endif
