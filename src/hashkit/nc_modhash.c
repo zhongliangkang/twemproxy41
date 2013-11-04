@@ -22,7 +22,6 @@
 #include <nc_server.h>
 #include <nc_hashkit.h>
 
-#define MODULA_CONTINUUM_ADDITION   10  /* # extra slots to build into continuum */
 #define MODULA_POINTS_PER_SERVER    1
 
 rstatus_t
@@ -40,12 +39,22 @@ modhash_update(struct server_pool *pool)
     uint32_t total_weight;        /* total live server weight */
     int64_t now;                  /* current timestamp in usec */
 
+    bool    keys_flag[MODHASH_TOTAL_KEY];
+    memset(keys_flag, 0, sizeof(keys_flag));
+
     now = nc_usec_now();
     if (now < 0) {
         return NC_ERROR;
     }
 
+    // we just report an error here
+    if(server_check_hash_keys(pool) != NC_OK){
+        log_error("there may be some error in the config file.");
+        return NC_ERROR;
+    }
+
     nserver = array_n(&pool->server);
+    printf("found n servers in modhash_update: %d . keys_flag: %d\n",nserver, sizeof(keys_flag));
     nlive_server = 0;
     total_weight = 0;
     pool->next_rebuild = 0LL;
@@ -56,16 +65,17 @@ modhash_update(struct server_pool *pool)
         if (pool->auto_eject_hosts) {
             if (server->next_retry <= now) {
                 server->next_retry = 0LL;
-                nlive_server++;
             } else if (pool->next_rebuild == 0LL ||
                        server->next_retry < pool->next_rebuild) {
                 pool->next_rebuild = server->next_retry;
             }
-        } else {
-            nlive_server++;
-        }
+        } 
 
-        ASSERT(server->weight > 0);
+        /* next retry time,we rebuild. for modhash ,wo donot auto_eject_hosts */
+        nlive_server++;
+
+        /* take no account the weight */
+        /* ASSERT(server->weight > 0); */
 
         /* count weight only for live servers */
         if (!pool->auto_eject_hosts || server->next_retry <= now) {
@@ -88,16 +98,16 @@ modhash_update(struct server_pool *pool)
               "%"PRIu32" '%.*s'", nlive_server, nserver, pool->idx,
               pool->name.len, pool->name.data);
 
-    continuum_addition = MODULA_CONTINUUM_ADDITION;
+    continuum_addition = 0;
     points_per_server = MODULA_POINTS_PER_SERVER;
 
     /*
-     * Allocate the continuum for the pool, the first time, and every time we
-     * add a new server to the pool
+     * Allocate the continuum for the pool, the first time. 
+     * infact we would never add new server here, because our hash is hard code to MODHASH_TOTAL_KEY.
      */
-    if (total_weight > pool->nserver_continuum) {
+    if ( pool->nserver_continuum != MODHASH_TOTAL_KEY) {
         struct continuum *continuum;
-        uint32_t nserver_continuum = total_weight + MODULA_CONTINUUM_ADDITION;
+        uint32_t nserver_continuum = MODHASH_TOTAL_KEY;
         uint32_t ncontinuum = nserver_continuum *  MODULA_POINTS_PER_SERVER;
 
         continuum = nc_realloc(pool->continuum, sizeof(*continuum) * ncontinuum);
@@ -115,20 +125,22 @@ modhash_update(struct server_pool *pool)
     pointer_counter = 0;
     for (server_index = 0; server_index < nserver; server_index++) {
         struct server *server = array_get(&pool->server, server_index);
+        int idx;
 
-        if (pool->auto_eject_hosts && server->next_retry > now) {
+        if(server->status < 1){
             continue;
         }
 
-        for (weight_index = 0; weight_index < server->weight; weight_index++) {
+        for (idx = server->seg_start; idx <= server->seg_end; idx++) {
             pointer_per_server = 1;
 
-            pool->continuum[continuum_index].index = server_index;
-            pool->continuum[continuum_index++].value = 0;
+            pool->continuum[idx].index = server_index;
+            pool->continuum[idx].value = 0;
 
             pointer_counter += pointer_per_server;
         }
     }
+
     pool->ncontinuum = pointer_counter;
 
     log_debug(LOG_VERB, "updated pool %"PRIu32" '%.*s' with %"PRIu32" of "
@@ -139,7 +151,6 @@ modhash_update(struct server_pool *pool)
               (pool->nserver_continuum + continuum_addition) * points_per_server);
 
     return NC_OK;
-
 }
 
 uint32_t
@@ -151,6 +162,8 @@ modhash_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash
     ASSERT(ncontinuum != 0);
 
     c = continuum + hash % ncontinuum;
+
+    log_debug(LOG_VERB, "choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
 
     return c->index;
 }

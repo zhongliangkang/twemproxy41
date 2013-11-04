@@ -769,7 +769,7 @@ stats_send_rsp(struct stats *st)
 
     /* get rid of head,tail space */
     nc_trim(recv_command);
-    log_debug(LOG_VERB,"receive length:%d, command:%s======%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+    log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
 
 
     // cut the command into many fields
@@ -784,7 +784,6 @@ stats_send_rsp(struct stats *st)
         }
         cmd_p[n_field] = key_point;
 
-        printf("token: %s\n",cmd_p[n_field]);
         n_field++;
 
         // too many fields
@@ -817,10 +816,15 @@ stats_send_rsp(struct stats *st)
         rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
         printf("add! ret:%s\n",result);
         n = nc_sendn(sd, result, strlen(result));
-    }else if(!strcmp(cmd_p[0],"change")){
+    }else if(!strcmp(cmd_p[0],"change")){    /* change status */
         printf("change!\n");
-    }else if(!strcmp(cmd_p[0],"delete")){
+    }else if(!strcmp(cmd_p[0],"delete")){    /* delete server */
         printf("delete!\n");
+    }else if(!strcmp(cmd_p[0],"getkey") && n_field == 3){  /* get hashkey  backend's info */
+        int rt;
+        rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);
+        printf("get key %s!\n",cmd_p[1]);
+        n = nc_sendn(sd, result, strlen(result));
     }else{
 		char str_e[] = "unkown command.\n";
             log_debug(LOG_VERB,"%s",str_e);

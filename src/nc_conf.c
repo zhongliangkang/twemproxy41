@@ -1337,9 +1337,21 @@ conf_post_validate(struct conf *cf)
             break;
         }
     }
+
     if (!valid) {
         return NC_ERROR;
     }
+
+    /* the keys for app range should be in 0~419999 */
+    for( valid = true,i = 0; i < npool; i++){
+        struct conf_pool *p1;
+
+        p1 = array_get(&cf->pool, i);
+
+
+    }
+
+
 
     return NC_OK;
 }
@@ -1623,6 +1635,10 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     field->weight = nc_atoi(weight, weightlen);
     if (field->weight < 0) {
         return "has an invalid weight in \"hostname:port:weight [name]\" format string";
+    }
+
+    if(field->seg_start > field->seg_end || field->seg_end >= MODHASH_TOTAL_KEY || field->seg_start <0){
+        return "has an invalid seg, valid range is [0 ~ 419999] ";
     }
 
     field->status= nc_atoi(pstatus, pstatus_len);
@@ -1994,12 +2010,58 @@ char *conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
     }
 
     return NC_OK;
-   
-    //err
-    return "null config item found!";
 }
 
 
 rstatus_t  sp_write_conf_file(struct conf_pool *cp, struct server_pool *sp, char* file_name){
 
+}
+
+rstatus_t conf_check_hash_keys(struct conf_pool *p){
+    bool keys_flag[MODHASH_TOTAL_KEY];
+    int n_server, i, j, hash_count;
+
+    memset(keys_flag, 0, sizeof(keys_flag));
+
+    ASSERT(p);
+    n_server = array_n(&p->server);
+    //record the hash slot number of status 1
+    hash_count = 0;
+
+    for(i = 0; i< n_server; i++){
+        struct conf_server * cs = array_get(&p->server, i);
+        if(cs->status < 1)
+            continue;
+
+        for(j = cs->seg_start; j<=cs->seg_end; j++){
+            if(keys_flag[j] == 0 && j< MODHASH_TOTAL_KEY ){
+                keys_flag[j] = 1;
+                hash_count ++;
+            }else{
+                // more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
+                log_error("error: hash key '%d' has more than one status is 1!\n",j);
+                return NC_ERROR;
+            }
+        }
+    }
+
+    ASSERT(hash_count <= MODHASH_TOTAL_KEY);
+
+    // not enogh slot status is 1!
+    if(hash_count < MODHASH_TOTAL_KEY){
+        log_error("error: there are %d keys have no valid backends!\n",MODHASH_TOTAL_KEY - hash_count);
+        //print 10 error key
+        for(i=0, j=0; i< MODHASH_TOTAL_KEY; i++){
+            if(keys_flag[i] == 0){
+                log_error("error: key '%d' has no valid backend.\n",i);
+                j++;
+            }
+            if(j>10)
+                break;
+        }
+        return NC_ERROR;
+
+    }
+
+    return NC_OK;
 }

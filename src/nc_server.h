@@ -61,6 +61,8 @@
 
 typedef uint32_t (*hash_t)(const char *, size_t);
 
+#define MODHASH_TOTAL_KEY  420000      /* total hash keys: 42w */
+
 struct continuum {
     uint32_t index;  /* server index */
     uint32_t value;  /* hash value */
@@ -163,6 +165,7 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 
 
 int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result);
+int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * result);
 
 
 /* 
@@ -175,5 +178,7 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
  * status: 0 or 1
  * */
 int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
+static rstatus_t server_set_new_owner(void * elem, void *data);
+rstatus_t server_check_hash_keys( struct server_pool *sp);
 
 #endif

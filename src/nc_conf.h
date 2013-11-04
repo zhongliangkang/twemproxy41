@@ -169,9 +169,10 @@ struct conf *conf_create(char *filename);
 void conf_destroy(struct conf *cf);
 
 int conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
-
 int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
-
 rstatus_t  sp_write_conf_file(struct conf_pool *cp, struct server_pool *sp, char* file_name);
+
+rstatus_t conf_check_hash_keys(struct conf_pool *p);
+rstatus_t conf_check_hash_keys(struct conf_pool *p);
 
 #endif

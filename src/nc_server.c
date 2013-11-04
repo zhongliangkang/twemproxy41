@@ -713,7 +713,8 @@ server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
         break;
 
     case DIST_MODHASH:
-        idx = modhash_dispatch(pool->continuum, pool->ncontinuum, 0);
+        hash = server_pool_hash(pool, key, keylen);
+        idx = modhash_dispatch(pool->continuum, pool->ncontinuum, hash);
         break;
 
     default:
@@ -1148,7 +1149,7 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     for(i = 0; i < n_old_svrs; i++){
         svr     = array_get(arr,i);
         new_svr = array_push(new_svrs);
-        nc_server_copy(svr,new_svr);
+        nc_memcpy( new_svr, svr, new_svrs->size);
     }
     // init the new added svr info
     new_svr = array_push(new_svrs);
@@ -1156,7 +1157,7 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     ASSERT(new_svr);
     
     new_svr->idx = array_idx(new_svrs, new_svr);
-    new_svr->owner = NULL;
+    new_svr->owner = sp;
 
     string_init(&new_svr->pname);
     ret = string_copy(&new_svr->pname, inst,strlen(inst));
@@ -1216,25 +1217,131 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     // if the old sp is modified, deinit the server ,or set the is_modified flag to 1
     if(sp->is_modified){
 
-        for (i = 0, nserver = array_n(old_svrs); i < nserver; i++) {
-            struct server *s;
-            s = array_pop(old_svrs);
-            ASSERT(TAILQ_EMPTY(&s->s_conn_q) && s->ns_conn_q == 0);
-        }
-
-        server_deinit(old_svrs);
         old_svrs->nelem = new_svrs->nelem;
         old_svrs->size  = new_svrs->size;
         old_svrs->elem  = new_svrs->elem;
         old_svrs->nalloc= new_svrs->nalloc;
 
         log_debug(LOG_DEBUG, "deinit old server info");
-    }else{
+    }else{ 
+
+        old_svrs->nelem = new_svrs->nelem;
+        old_svrs->size  = new_svrs->size;
+        old_svrs->elem  = new_svrs->elem;
+        old_svrs->nalloc= new_svrs->nalloc;
+
         sp->is_modified = 1;
         log_debug(LOG_DEBUG, "set is_modified flag to 1");
+    }
+
+    array_each(&sp->server,server_set_new_owner,NULL);
+
+    snprintf(result,1000,"add server OK. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . seqstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
+    return NC_OK;
+}
+
+static rstatus_t 
+server_set_new_owner(void * elem, void *data){
+    struct server *server;
+
+    printf("in server_set_new_owner\n");
+
+    server = elem;
+
+    struct conn *conn;
+
+    TAILQ_FOREACH(conn, &server->s_conn_q,conn_tqe){
+        printf(" conn address:%d %d\n",&conn->owner, &server);
+    }
+
+    return NC_OK;
+
+
+}
+
+rstatus_t server_check_hash_keys( struct server_pool *sp){
+    struct server *server;
+    bool keys_flag[MODHASH_TOTAL_KEY];
+    int n_server, i, j, hash_count;
+
+    memset(keys_flag, 0, sizeof(keys_flag));
+
+    n_server = array_n(&sp->server);
+    hash_count = 0;
+
+    for(i = 0; i< n_server; i++){
+        server = array_get(&sp->server, i);
+        if(server->status < 1)
+            continue;
+
+        for(j = server->seg_start; j<= server->seg_end; j++){
+            if(keys_flag[j] == 0 && j< MODHASH_TOTAL_KEY ){
+                keys_flag[j] = 1;
+                hash_count ++;
+            }else{
+                // more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
+                log_error("error: hash key '%d' has more than one status is 1!\n",j);
+                return NC_ERROR;
+            }
+        }
+
+    }
+
+    // not enogh slot status is 1!
+    if(hash_count != MODHASH_TOTAL_KEY){
+        log_error("error: there are %d keys have no valid backends!\n",MODHASH_TOTAL_KEY - hash_count);
+
+        //print 10 error key
+        for(i=0, j=0; i< MODHASH_TOTAL_KEY; i++){
+            if(keys_flag[i] == 0){
+                log_error("error: key '%d' has no valid backend.\n",i);
+                j++;
+            }
+            if(j>10)
+                break;
+        }
+        return NC_ERROR;
     }
 
     return NC_OK;
 }
 
 
+int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * result){
+    int key, n_sp, i;
+    struct continuum *c;
+    int svr_idx;
+    struct server *svr;
+    struct array *arr = sp_p;
+
+    ASSERT(sp_p);
+    n_sp = array_n(arr);
+    
+    for(i = 0; i< n_sp; i++){
+        struct server_pool *sp = array_get(arr, i);
+
+        //find the sp_name
+        if(!strcmp(sp_name, sp->name.data)){
+            key = nc_atoi(key_s, strlen(key_s));
+            if( key <0 || key >= MODHASH_TOTAL_KEY)
+            {
+                snprintf(result,1024,"invalid key range [0~%d]",key,MODHASH_TOTAL_KEY-1);
+                return NC_ERROR;
+            }
+            c = sp->continuum + key;
+
+            //get the server index
+            svr_idx = c->index;
+
+            //get the server
+            svr = array_get(&sp->server, svr_idx);
+
+            snprintf(result,1024,"%s\n",svr->pname.data);
+            return NC_OK;
+        }
+    }
+
+    snprintf(result,1024,"cannot find server_pool name '%s'\n",sp_name);
+
+    return NC_ERROR;
+}
