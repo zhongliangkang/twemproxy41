@@ -170,6 +170,14 @@ conf_server_each_transform(void *elem, void *data)
     s->status= cs->status;
     s->seg_start    = cs->seg_start;
     s->seg_end      = cs->seg_end;
+    s->sock_need_free = false;
+    s->sock_info      = &cs->info;
+    s->reload_svr     =false;
+    pthread_mutex_init(&s->mutex, NULL);
+
+    s->mif.ski       = NULL;
+    s->mif.new_name  = NULL;
+    s->mif.new_pname = NULL;
 
     s->family = cs->info.family;
     s->addrlen = cs->info.addrlen;

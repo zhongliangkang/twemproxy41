@@ -750,6 +750,52 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
         return NULL;
     }
 
+    /* reload server config here */
+    if (server->reload_svr){
+        /* make sure the mif is OK */
+        ASSERT(server->mif.ski && server->mif.new_name && server->mif.new_pname);
+
+        /* lock for safe */
+        pthread_mutex_lock(&server->mutex);
+
+        if(server->sock_need_free){
+            nc_free(server->sock_info);
+        }else{
+            server->sock_need_free = true;  /* first modified */
+        }
+
+        server->family = server->mif.ski->family;
+        server->addrlen= server->mif.ski->addrlen;
+        server->addr   = (struct sockaddr*)&server->mif.ski->addr;
+        server->sock_info = server->mif.ski;
+
+        nc_free(server->pname.data);
+        nc_free(server->name.data);
+        server->pname.data = server->mif.new_pname;
+        server->pname.len  = strlen(server->mif.new_pname);
+        server->name.data = server->mif.new_name;
+        server->name.len  = strlen(server->mif.new_name);
+
+        struct server_pool *tpool= server->owner;
+        while(!TAILQ_EMPTY(&server->s_conn_q)){
+            struct conn *conn;
+            ASSERT(server->ns_conn_q > 0 );
+
+            conn = TAILQ_FIRST(&server->s_conn_q);
+            conn->close(tpool->ctx, conn);
+        }
+
+        printf("start to sleep 100 \n");
+        sleep(100);
+
+
+        /* reload OK */
+        server->reload_svr = false;
+        
+        pthread_mutex_unlock(&server->mutex);
+    }
+
+
     /* pick a connection to a given server */
     conn = server_conn(server);
     if (conn == NULL) {
@@ -1345,3 +1391,142 @@ int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * re
 
     return NC_ERROR;
 }
+
+int nc_is_valid_instance(char *inst, char *ip, int * port){
+    int ret;
+    int ip_len,port_len;
+
+    ip_len=0;
+
+    while(ip_len < strlen(inst) && inst[ip_len] != ':') ip_len ++;
+
+    port_len =0;
+    while(ip_len+port_len+1 <strlen(inst) && inst[ip_len+port_len+1]!=':') port_len++;
+
+    if(ip_len == 0 || port_len == 0 || ip_len >16){
+        log_error(" %s not a valid instance (IP:PORT[:WEIGHT])\n",inst);
+        return NC_ERROR;
+    }
+
+    // result
+    nc_memcpy(ip,inst,ip_len);
+    *port = nc_atoi(inst+ip_len+1,port_len);
+
+    if(*port <= 0){
+        log_error(" %s contain an invalid port(IP:PORT[:WEIGHT])\n",inst);
+        return NC_ERROR;
+    }
+
+    return NC_OK;
+}
+
+int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char *new_instance, char* result){
+    int n,m,i,j;
+    struct array *arr = sp;
+    int rt;
+    struct string addr;
+
+    char old_ip[20],new_ip[20];
+    int  old_port,new_port, oldsvr_index;
+    bool is_oldsvr_exist = false;
+
+    log_debug(LOG_VERB, " in nc_server_change_instance");
+
+    n = array_n(arr);
+
+    for(i=0;i<n;i++){
+        struct server_pool *sp= array_get(arr,i);
+        //in this server pool
+        if(!strcmp(sp_name, sp->name.data)){
+            m = array_n(&sp->server);
+
+            log_debug(LOG_VERB,"sp name: %s, old inst: %s, new inst:%s \n", sp_name,old_instance, new_instance);
+
+            /* step1: precheck instance format */
+            if(nc_is_valid_instance(old_instance, old_ip, &old_port) != NC_OK || 
+                    nc_is_valid_instance(new_instance, new_ip, &new_port) != NC_OK){
+                log_error("invalid instance config, old instance: %s ,new instance:%s \n",old_instance, new_instance);
+                snprintf(result,1024,"invalid instance info, old instance: %s ,new instance:%s \n",old_instance, new_instance);
+                return NC_ERROR;
+            }
+
+            log_debug(LOG_VERB,"info: old: %s:%d, new: %s:%d\n", old_ip, old_port, new_ip, new_port );
+
+            if( rt != NC_OK){
+                log_error("new add server precheck failed: %s\n",sp_name);
+                return NC_ERROR;
+            }
+
+            // check the old instance
+            struct server *svr;
+            for( j=0; j<m; j++){
+                svr = array_get(&sp->server, j);
+
+                //find the svr need to be replace
+                if(! nc_strncmp( svr->name.data, old_instance, strlen(old_instance))){
+                    is_oldsvr_exist = true;
+                    oldsvr_index = j;
+                    break;
+                }
+            }
+
+            if( !is_oldsvr_exist){
+                snprintf(result,80,"cannot find svr %s in server pool %s\n",old_instance, sp_name );
+                return NC_ERROR;
+            }
+
+            log_debug(LOG_VERB,"check ok, start to change.\n");
+            ASSERT(svr);
+
+            // first change the content of svr, then close all the connections of svr
+            //
+            /* sockinfo */
+            struct sockinfo *ski = (void *)nc_alloc(sizeof(struct sockinfo));
+            char            *new_name = (void *) nc_alloc(1024);
+            char            *new_pname= (void *) nc_alloc(1024);
+
+            snprintf(new_pname,1024,"%s:1 %s %d-%d %d",new_instance, svr->app.data, svr->seg_start, svr->seg_end, svr->status);
+            snprintf(new_name,1024,"%s:%d",new_ip,new_port );
+
+            if( !ski){
+                return NC_ERROR;
+            }
+
+            string_init(&addr);
+            rt = string_copy(&addr, new_ip, strlen(new_ip));
+            if(rt != NC_OK){
+                return rt;
+            }
+
+            rt = nc_resolve(&addr, new_port, ski);
+            if(rt != NC_OK){
+                return rt;
+            }
+
+            /* save new backend information for main thread to modify, thread lock for safe */
+            pthread_mutex_lock(&svr->mutex);
+
+            svr->mif.ski = ski;
+            svr->mif.new_name = new_name;
+            svr->mif.new_pname= new_pname;
+            svr->reload_svr = true;
+
+            pthread_mutex_unlock(&svr->mutex);
+
+            snprintf(result, 1024, "change banckends from ' %s ' to  ' %s ' success.\n",old_instance, sp_name );
+            return NC_OK;
+
+        }
+    }
+
+    // not found the config
+    if( !is_oldsvr_exist){
+        snprintf(result,80,"cannot find svr %s in server pool %s\n",old_instance, sp_name );
+    }else{
+        snprintf(result,80,"cannot find redis pool %s\n",sp_name );
+    }
+    return NC_ERROR;
+
+    return  NC_OK;
+}
+

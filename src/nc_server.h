@@ -68,6 +68,12 @@ struct continuum {
     uint32_t value;  /* hash value */
 };
 
+struct modify_info{
+    struct sockinfo *ski;
+    char            *new_name;
+    char            *new_pname;
+};
+
 struct server {
     uint32_t           idx;           /* server index */
     struct server_pool *owner;        /* owner pool */
@@ -84,6 +90,11 @@ struct server {
     int                status;  /* instance status */
     int                seg_start; /* start of segment */
     int                seg_end  ; /* start of segment */
+    bool               sock_need_free; /* if need to free the sock addr */
+    struct sockinfo    *sock_info;    /* pointer to the sock info*/
+    struct modify_info mif;           /* struct for store modify information when modify the config */
+    bool               reload_svr;    /* flag to check if need to reload svr info from modify_info above */
+    pthread_mutex_t    mutex;         /* mutex for modify config infomation */
 
     uint32_t           ns_conn_q;     /* # server connection */
     struct conn_tqh    s_conn_q;      /* server connection q */
@@ -180,5 +191,7 @@ int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * res
 int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
 static rstatus_t server_set_new_owner(void * elem, void *data);
 rstatus_t server_check_hash_keys( struct server_pool *sp);
+
+int nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 
 #endif

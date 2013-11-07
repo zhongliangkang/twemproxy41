@@ -744,7 +744,7 @@ stats_send_rsp(struct stats *st)
     ssize_t n;
     int sd;
     char result[1024];
-    char recv_command[MAX_COMMAND_LENGTH];
+    char recv_command[MAX_COMMAND_LENGTH*MAX_COMMAND_FIELD];
     char *cmd_p[MAX_COMMAND_FIELD];
     char *p,*key_point;
     int n_field;
@@ -770,6 +770,13 @@ stats_send_rsp(struct stats *st)
     /* get rid of head,tail space */
     nc_trim(recv_command);
     log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+
+    // null command
+    if(strlen(recv_command) < 1){
+        char str_e[] = "empty command\n";
+        n = nc_sendn(sd, str_e, strlen(str_e));
+        goto end;
+    }
 
 
     // cut the command into many fields
@@ -812,12 +819,19 @@ stats_send_rsp(struct stats *st)
         }
         n = nc_sendn(sd, result, strlen(result));
     }else if(!strcmp(cmd_p[0],"add") && n_field == 6){         /* add server */
-        int rt;
-        rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
-        printf("add! ret:%s\n",result);
+        //int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
+        snprintf(result,100,"add! \n");
         n = nc_sendn(sd, result, strlen(result));
-    }else if(!strcmp(cmd_p[0],"change")){    /* change status */
-        printf("change!\n");
+    }else if(!strcmp(cmd_p[0],"change") && n_field == 4){    /* change status */
+        int rt;
+        rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
+
+        if(rt != NC_OK){
+            log_error("err ret:%d . msg: %s\n",rt, result);
+        }
+
+        n = nc_sendn(sd, result, strlen(result));
+
     }else if(!strcmp(cmd_p[0],"delete")){    /* delete server */
         printf("delete!\n");
     }else if(!strcmp(cmd_p[0],"getkey") && n_field == 3){  /* get hashkey  backend's info */
@@ -826,10 +840,9 @@ stats_send_rsp(struct stats *st)
         printf("get key %s!\n",cmd_p[1]);
         n = nc_sendn(sd, result, strlen(result));
     }else{
-		char str_e[] = "unkown command.\n";
-            log_debug(LOG_VERB,"%s",str_e);
+        char str_e[] = "unkown command.\n";
+        log_debug(LOG_VERB,"%s",str_e);
         n = nc_sendn(sd, str_e, strlen(str_e));
-
 	}
 
     
