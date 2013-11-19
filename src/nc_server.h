@@ -121,6 +121,8 @@ struct server_pool {
     int64_t            next_rebuild;         /* next distribution rebuild time in usec */
 
     struct string      name;                 /* pool name (ref in conf_pool) */
+    struct string      password;             /* pool password */
+    struct string      redis_password;       /* pool password for access redis backends */
     struct string      addrstr;              /* pool address (ref in conf_pool) */
     uint16_t           port;                 /* port */
     int                family;               /* socket family */
@@ -139,6 +141,9 @@ struct server_pool {
     unsigned           auto_eject_hosts:1;   /* auto_eject_hosts? */
     unsigned           preconnect:1;         /* preconnect? */
     unsigned           redis:1;              /* redis? */
+
+    unsigned           b_pass:1;             /* if access twemproxy need password? */
+    unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
 };
 
 void server_ref(struct conn *conn, void *owner);
@@ -178,6 +183,9 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result);
 int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * result);
 
+/* send the auth package to redis server */
+rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn);
+
 
 /* 
  * parameters:
@@ -189,9 +197,9 @@ int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * res
  * status: 0 or 1
  * */
 int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
-static rstatus_t server_set_new_owner(void * elem, void *data);
 rstatus_t server_check_hash_keys( struct server_pool *sp);
 
 int nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 
+int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * seqs, char* status, char* result);
 #endif

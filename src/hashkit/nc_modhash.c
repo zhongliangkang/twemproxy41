@@ -35,7 +35,6 @@ modhash_update(struct server_pool *pool)
     uint32_t continuum_index;     /* continuum index */
     uint32_t continuum_addition;  /* extra space in the continuum */
     uint32_t server_index;        /* server index */
-    uint32_t weight_index;        /* weight index */
     uint32_t total_weight;        /* total live server weight */
     int64_t now;                  /* current timestamp in usec */
 
@@ -54,7 +53,8 @@ modhash_update(struct server_pool *pool)
     }
 
     nserver = array_n(&pool->server);
-    printf("found n servers in modhash_update: %d . keys_flag: %d\n",nserver, sizeof(keys_flag));
+    log_debug(LOG_VERB,"found n servers in modhash_update: %ld . keys_flag: %d\n",nserver, sizeof(keys_flag));
+
     nlive_server = 0;
     total_weight = 0;
     pool->next_rebuild = 0LL;

@@ -56,6 +56,8 @@ redis_arg0(struct msg *r)
     case MSG_REQ_REDIS_SRANDMEMBER:
 
     case MSG_REQ_REDIS_ZCARD:
+
+    case MSG_REQ_REDIS_AUTH: /* auth */
         return true;
 
     default:
@@ -555,6 +557,12 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_EVAL;
                     break;
                 }
+
+                if (str4icmp(m, 'a', 'u', 't', 'h')) {
+                    r->type = MSG_REQ_REDIS_AUTH;
+                    break;
+                }
+
 
                 break;
 
@@ -1487,7 +1495,14 @@ done:
     ASSERT(r->pos <= b->last);
     r->state = SW_START;
     r->token = NULL;
-    r->result = MSG_PARSE_OK;
+
+    /* special process for auth */
+    if ( r->type == MSG_REQ_REDIS_AUTH){
+        r->result = MSG_PARSE_AUTH;
+    }else{
+        r->result = MSG_PARSE_OK;
+    }
+
 
     log_hexdump(LOG_VERB, b->pos, mbuf_length(b), "parsed req %"PRIu64" res %d "
                 "type %d state %d rpos %d of %d", r->id, r->result, r->type,

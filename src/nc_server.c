@@ -23,6 +23,7 @@
 #include <nc_conf.h>
 #include <hashkit/nc_hashkit.h>
 
+static rstatus_t server_set_new_owner(void * elem, void *data);
 
 static struct sp_config  sp_config_arr[]={
     /*
@@ -522,6 +523,7 @@ rstatus_t
 server_connect(struct context *ctx, struct server *server, struct conn *conn)
 {
     rstatus_t status;
+    rstatus_t con_ret;
 
     ASSERT(!conn->client && !conn->proxy);
 
@@ -574,7 +576,8 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
             conn->connecting = 1;
             log_debug(LOG_DEBUG, "connecting on s %d to server '%.*s'",
                       conn->sd, server->pname.len, server->pname.data);
-            return NC_OK;
+            //return NC_OK;
+            goto con_ok;
         }
 
         log_error("connect on s %d to server '%.*s' failed: %s", conn->sd,
@@ -587,6 +590,18 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
     conn->connected = 1;
     log_debug(LOG_INFO, "connected on s %d to server '%.*s'", conn->sd,
               server->pname.len, server->pname.data);
+
+
+con_ok:
+    printf("connect to server %s\n\n\n",server->pname.data);
+
+    con_ret = server_send_redis_auth(ctx, conn);
+
+    if(con_ret != NC_OK ){
+        log_error("authentication failed when connect to redis.");
+        conn->err = errno;
+        return NC_ERROR;
+    }
 
     return NC_OK;
 
@@ -758,39 +773,36 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
         /* lock for safe */
         pthread_mutex_lock(&server->mutex);
 
-        if(server->sock_need_free){
-            nc_free(server->sock_info);
-        }else{
-            server->sock_need_free = true;  /* first modified */
+        if(server->reload_svr){   /* for safe */
+            if(server->sock_need_free){
+                nc_free(server->sock_info);
+            }else{
+                server->sock_need_free = true;  /* first modified */
+            }
+
+            server->family = server->mif.ski->family;
+            server->addrlen= server->mif.ski->addrlen;
+            server->addr   = (struct sockaddr*)&server->mif.ski->addr;
+            server->sock_info = server->mif.ski;
+
+            nc_free(server->pname.data);
+            nc_free(server->name.data);
+            server->pname.data = (uint8_t*)server->mif.new_pname;
+            server->pname.len  = (size_t)nc_strlen(server->mif.new_pname);
+            server->name.data = (uint8_t*)server->mif.new_name;
+            server->name.len  = (size_t)strlen(server->mif.new_name);
+
+            struct server_pool *tpool= server->owner;
+            while(!TAILQ_EMPTY(&server->s_conn_q)){
+                ASSERT(server->ns_conn_q > 0 );
+
+                conn = TAILQ_FIRST(&server->s_conn_q);
+                conn->close(tpool->ctx, conn);
+            }
+
+            /* reload OK */
+            server->reload_svr = false;
         }
-
-        server->family = server->mif.ski->family;
-        server->addrlen= server->mif.ski->addrlen;
-        server->addr   = (struct sockaddr*)&server->mif.ski->addr;
-        server->sock_info = server->mif.ski;
-
-        nc_free(server->pname.data);
-        nc_free(server->name.data);
-        server->pname.data = server->mif.new_pname;
-        server->pname.len  = strlen(server->mif.new_pname);
-        server->name.data = server->mif.new_name;
-        server->name.len  = strlen(server->mif.new_name);
-
-        struct server_pool *tpool= server->owner;
-        while(!TAILQ_EMPTY(&server->s_conn_q)){
-            struct conn *conn;
-            ASSERT(server->ns_conn_q > 0 );
-
-            conn = TAILQ_FIRST(&server->s_conn_q);
-            conn->close(tpool->ctx, conn);
-        }
-
-        printf("start to sleep 100 \n");
-        sleep(100);
-
-
-        /* reload OK */
-        server->reload_svr = false;
         
         pthread_mutex_unlock(&server->mutex);
     }
@@ -983,11 +995,10 @@ server_pool_deinit(struct array *server_pool)
 char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result){
     uint8_t *p;
     struct array *arr= NULL; 
-    int svr_num=0;
-    int i;
+    uint32_t svr_num=0,i;
     char *strp;
 
-    p = sp; 
+    p = (void *)sp; 
     arr = (struct array *)(p + spc->offset);
     svr_num = array_n(arr);
         
@@ -995,7 +1006,18 @@ char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * resu
         
     for (i = 0; i < svr_num; i++) {
         struct server *cs = array_get(arr, i);
-        snprintf(strp, 1024,"%s %s %d-%d %d\n",cs->name.data,cs->app.data,cs->seg_start,cs->seg_end,cs->status);
+
+
+        // add thread lock for safe
+        pthread_mutex_lock(&cs->mutex);
+
+        if(cs->reload_svr){
+            snprintf(strp, 1024,"%s %s %d-%d %d\n",cs->mif.new_name,cs->app.data,cs->seg_start,cs->seg_end,cs->status);
+        }else{
+            snprintf(strp, 1024,"%s %s %d-%d %d\n",cs->name.data,cs->app.data,cs->seg_start,cs->seg_end,cs->status);
+        }
+        pthread_mutex_unlock(&cs->mutex);
+
         strp = result+strlen(result);
     }
 
@@ -1004,13 +1026,13 @@ char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * resu
 
 
 int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
-        int n,m,i;
+        uint32_t n,m,i;
         struct array *arr = sp;
         int rt;
 
         struct string item;
-        item.data=sp_item;
-        item.len = strlen(sp_item);
+        item.data = (void *)sp_item;
+        item.len = (size_t)nc_strlen(sp_item);
 
         n = array_n(arr);
 
@@ -1049,7 +1071,7 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
 
     log_debug(LOG_VERB, " in server_pool_get_config_by_string");
     for(spp = sp_config_arr ; spp->name.len != 0; spp++){
-        int rv = 0;
+        char *rv = NULL;
 
         if(string_compare( item, &spp->name) !=0){
             continue;
@@ -1072,7 +1094,7 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
 }
 
 int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result){
-    int n,m,i;
+    uint32_t n,m,i;
     struct array *arr = sp;
     int rt;
     struct string item;
@@ -1080,7 +1102,7 @@ int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, 
     log_debug(LOG_VERB, " in nc_add_a_server");
 
     item.data= inst;
-    item.len = strlen(inst);
+    item.len = (size_t) nc_strlen(inst);
 
     n = array_n(arr);
 
@@ -1122,10 +1144,10 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     struct array *new_svrs, *old_svrs;
     struct server *svr, *new_svr;
 
-    int n_old_svrs = array_n(arr);
-    int n_new_svrs = n_old_svrs + 1;
-    int port,seg_start,seg_end,istatus, i,nserver;
-    int ip_len,port_len,seg_start_len;
+    uint32_t n_old_svrs = array_n(arr);
+    uint32_t n_new_svrs = n_old_svrs + 1;
+    int port,seg_start,seg_end,istatus, i;
+    size_t ip_len,port_len,seg_start_len;
     struct sockinfo *ski;
     rstatus_t ret;
 
@@ -1144,7 +1166,7 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
 
     ip_len=0;
 
-    while(ip_len < strlen(inst) && inst[ip_len] != ':') ip_len ++;
+    while(ip_len < nc_strlen(inst) && inst[ip_len] != ':') ip_len ++;
 
     port_len =0;
     while(ip_len+port_len+1 <strlen(inst) && inst[ip_len+port_len+1]!=':') port_len++;
@@ -1206,13 +1228,13 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     new_svr->owner = sp;
 
     string_init(&new_svr->pname);
-    ret = string_copy(&new_svr->pname, inst,strlen(inst));
+    ret = string_copy(&new_svr->pname, inst, strlen(inst));
     if(ret != NC_OK){
         return NC_ERROR;
     }
 
     string_init(&new_svr->name);
-    ret = string_copy(&new_svr->name , inst,strlen(inst));
+    ret = string_copy(&new_svr->name , inst, strlen(inst));
     if(ret != NC_OK){
         return NC_ERROR;
     }
@@ -1282,7 +1304,7 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
 
     array_each(&sp->server,server_set_new_owner,NULL);
 
-    snprintf(result,1000,"add server OK. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . seqstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
+    //snprintf(result,1000,"add server OK. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . seqstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
     return NC_OK;
 }
 
@@ -1290,14 +1312,14 @@ static rstatus_t
 server_set_new_owner(void * elem, void *data){
     struct server *server;
 
-    printf("in server_set_new_owner\n");
+    log_debug(LOG_VERB,"in server_set_new_owner\n");
 
     server = elem;
 
     struct conn *conn;
 
     TAILQ_FOREACH(conn, &server->s_conn_q,conn_tqe){
-        printf(" conn address:%d %d\n",&conn->owner, &server);
+        //printf(" conn address:%d %d\n",&conn->owner, &server);
     }
 
     return NC_OK;
@@ -1308,7 +1330,7 @@ server_set_new_owner(void * elem, void *data){
 rstatus_t server_check_hash_keys( struct server_pool *sp){
     struct server *server;
     bool keys_flag[MODHASH_TOTAL_KEY];
-    int n_server, i, j, hash_count;
+    uint32_t n_server, i, j, hash_count;
 
     memset(keys_flag, 0, sizeof(keys_flag));
 
@@ -1354,9 +1376,9 @@ rstatus_t server_check_hash_keys( struct server_pool *sp){
 
 
 int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * result){
-    int key, n_sp, i;
+    uint32_t key, n_sp, i;
     struct continuum *c;
-    int svr_idx;
+    uint32_t svr_idx;
     struct server *svr;
     struct array *arr = sp_p;
 
@@ -1371,7 +1393,7 @@ int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * re
             key = nc_atoi(key_s, strlen(key_s));
             if( key <0 || key >= MODHASH_TOTAL_KEY)
             {
-                snprintf(result,1024,"invalid key range [0~%d]",key,MODHASH_TOTAL_KEY-1);
+                nc_snprintf(result,1024,"invalid key range [0~%d]",MODHASH_TOTAL_KEY-1);
                 return NC_ERROR;
             }
             c = sp->continuum + key;
@@ -1393,7 +1415,6 @@ int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * re
 }
 
 int nc_is_valid_instance(char *inst, char *ip, int * port){
-    int ret;
     int ip_len,port_len;
 
     ip_len=0;
@@ -1420,15 +1441,18 @@ int nc_is_valid_instance(char *inst, char *ip, int * port){
     return NC_OK;
 }
 
-int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char *new_instance, char* result){
-    int n,m,i,j;
-    struct array *arr = sp;
+int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, char *new_instance, char* result){
+    uint32_t n,m,i,j;
+    struct array *arr = sp_a;
     int rt;
     struct string addr;
 
     char old_ip[20],new_ip[20];
     int  old_port,new_port, oldsvr_index;
     bool is_oldsvr_exist = false;
+    struct sockinfo *ski ;
+    char            *new_name;
+    char            *new_pname;
 
     log_debug(LOG_VERB, " in nc_server_change_instance");
 
@@ -1452,6 +1476,9 @@ int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char 
 
             log_debug(LOG_VERB,"info: old: %s:%d, new: %s:%d\n", old_ip, old_port, new_ip, new_port );
 
+            //TODO: add new server here
+            rt = NC_OK;
+
             if( rt != NC_OK){
                 log_error("new add server precheck failed: %s\n",sp_name);
                 return NC_ERROR;
@@ -1463,7 +1490,8 @@ int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char 
                 svr = array_get(&sp->server, j);
 
                 //find the svr need to be replace
-                if(! nc_strncmp( svr->name.data, old_instance, strlen(old_instance))){
+                if(! nc_strncmp( svr->name.data, old_instance, strlen(old_instance)) || 
+                        (svr->reload_svr && !nc_strncmp( svr->mif.new_name, old_instance, strlen(old_instance)))){
                     is_oldsvr_exist = true;
                     oldsvr_index = j;
                     break;
@@ -1481,30 +1509,54 @@ int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char 
             // first change the content of svr, then close all the connections of svr
             //
             /* sockinfo */
-            struct sockinfo *ski = (void *)nc_alloc(sizeof(struct sockinfo));
-            char            *new_name = (void *) nc_alloc(1024);
-            char            *new_pname= (void *) nc_alloc(1024);
+
+            ski = (void *)nc_alloc(sizeof(struct sockinfo));
+            if( !ski){
+                return NC_ENOMEM;
+            }
+
+            new_name = (void *) nc_alloc(1024);
+            if( !new_name ){
+                nc_free(ski);
+                return NC_ENOMEM;
+            }
+
+            new_pname = (void *) nc_alloc(1024);
+            if( !new_pname ){
+                nc_free(ski);
+                nc_free(new_name);
+                return NC_ENOMEM;
+            }
+
 
             snprintf(new_pname,1024,"%s:1 %s %d-%d %d",new_instance, svr->app.data, svr->seg_start, svr->seg_end, svr->status);
             snprintf(new_name,1024,"%s:%d",new_ip,new_port );
 
-            if( !ski){
-                return NC_ERROR;
-            }
-
             string_init(&addr);
             rt = string_copy(&addr, new_ip, strlen(new_ip));
             if(rt != NC_OK){
-                return rt;
+                goto err;
             }
 
             rt = nc_resolve(&addr, new_port, ski);
             if(rt != NC_OK){
-                return rt;
+                goto err;
             }
 
+            // step 1: first write new config file
+
+            sp_write_conf_file(sp, i, j, new_pname);
+
+
+            // step 2: modify the meminfo,and change the reload_svr flag for loading new config
             /* save new backend information for main thread to modify, thread lock for safe */
             pthread_mutex_lock(&svr->mutex);
+
+            if( svr->reload_svr){  /* modify the instance info,but the old modification has not reload,free the svr->mif */
+                nc_free(svr->mif.ski);
+                nc_free(svr->mif.new_name);
+                nc_free(svr->mif.new_pname);
+            }  /* else: the prev modification has reload,need not to free the old mif info */
 
             svr->mif.ski = ski;
             svr->mif.new_name = new_name;
@@ -1513,7 +1565,7 @@ int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char 
 
             pthread_mutex_unlock(&svr->mutex);
 
-            snprintf(result, 1024, "change banckends from ' %s ' to  ' %s ' success.\n",old_instance, sp_name );
+            snprintf(result, 1024, "change banckends from ' %s ' to  ' %s ' success.\n",old_instance, new_instance);
             return NC_OK;
 
         }
@@ -1525,8 +1577,79 @@ int nc_server_change_instance(void *sp, char *sp_name, char *old_instance, char 
     }else{
         snprintf(result,80,"cannot find redis pool %s\n",sp_name );
     }
+err:
+    if(ski)
+    {
+        nc_free(ski);
+    }
+    if(new_name)
+    {
+        nc_free(new_name);
+    }
+    if(new_name)
+    {
+        nc_free(new_pname);
+    }
     return NC_ERROR;
 
-    return  NC_OK;
 }
 
+
+// here we create a vitual client_conn to send auth info
+rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
+    struct server_pool *sp;
+    int n;
+
+    char auth_str[1024];
+    char auth_recv[1024];
+
+
+    sp = ((struct server*)s_conn->owner)->owner;
+    ASSERT(sp);
+
+    if( ! sp->b_redis_pass ){
+        log_debug(LOG_VERB, "No redis password set, skip authentication. ");
+        return NC_OK;
+    }
+
+    ASSERT(!string_empty(&sp->redis_password));
+
+    // concat the auth command
+    nc_snprintf(auth_str,1024,"*2"CRLF"$4"CRLF"auth"CRLF"$%d"CRLF"%s"CRLF,sp->redis_password.len,sp->redis_password.data);
+    n = nc_write(s_conn->sd,auth_str,nc_strlen(auth_str));
+
+    log_debug(LOG_VERB, "send server return:%s %d.\n\n",auth_str,n);
+
+
+    // receive the auth result
+    for(;;){
+        n = nc_read(s_conn->sd, auth_recv, 1024);
+        if(n>=0){
+            break;
+        }
+
+        if(errno == EINTR || errno == EAGAIN){
+            continue;
+        }
+        else{
+            log_error("recv on sd %d failed: err info: %d %s",s_conn->sd,errno, strerror(errno));
+            return NC_ERROR;
+        }
+    }
+
+    log_debug(LOG_VERB, "redis server return:%s %d.\n\n",auth_recv,n);
+
+    // redis authentication pass
+    if(!nc_strncmp(auth_recv,"+OK", 3)){
+        log_debug(LOG_VERB, "redis authentication OK.");
+        s_conn-> authed = 1;
+    }else if(!nc_strncmp(auth_recv,"-ERR invalid password"CRLF, nc_strlen(auth_recv))){
+        log_debug(LOG_VERB, "redis authentication failed:  invalid password.");
+    }else if(!nc_strncmp(auth_recv,"-ERR Client sent AUTH, but no password is set"CRLF,nc_strlen(auth_recv))){
+        log_warn("redis authentication warn: %s", auth_recv);
+    }else{
+        log_debug(LOG_VERB, "redis authentication failed: ret:%s ",auth_recv);
+    }
+
+    return NC_OK;
+}

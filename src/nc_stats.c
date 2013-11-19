@@ -25,6 +25,7 @@
 
 #include <nc_core.h>
 #include <nc_server.h>
+#include <nc_conf.h>
 
 struct stats_desc {
     char *name; /* stats name */
@@ -783,7 +784,7 @@ stats_send_rsp(struct stats *st)
     p = recv_command;
     n_field = 0;
     while(p){
-        while(key_point = strsep(&p, " \t")){
+        while((key_point = strsep(&p, " \t"))){
             if(*key_point == 0)
                 continue;
             else

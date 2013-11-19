@@ -30,6 +30,7 @@ typedef enum msg_parse_result {
     MSG_PARSE_REPAIR,                     /* more to parse -> repair parsed & unparsed data */
     MSG_PARSE_FRAGMENT,                   /* multi-vector request -> fragment */
     MSG_PARSE_AGAIN,                      /* incomplete -> parse again */
+    MSG_PARSE_AUTH,                       /* auth  -> request for auth */
 } msg_parse_result_t;
 
 typedef enum msg_type {
@@ -152,6 +153,9 @@ typedef enum msg_type {
     MSG_RSP_REDIS_INTEGER,
     MSG_RSP_REDIS_BULK,
     MSG_RSP_REDIS_MULTIBULK,
+
+    MSG_REQ_REDIS_AUTH,                   /* add auth method support */
+
     MSG_SENTINEL
 } msg_type_t;
 

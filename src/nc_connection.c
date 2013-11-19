@@ -161,16 +161,33 @@ struct conn *
 conn_get(void *owner, bool client, bool redis)
 {
     struct conn *conn;
+    struct server_pool *sp;
 
     conn = _conn_get();
     if (conn == NULL) {
         return NULL;
     }
 
+    if(client){
+        sp = owner;
+    }else{
+        sp = ((struct server*)owner)->owner;
+    }
+
     /* connection either handles redis or memcache messages */
     conn->redis = redis ? 1 : 0;
 
     conn->client = client ? 1 : 0;
+
+    /* assum all the client connection is authed if no password is set */
+    /* redis/memcache client need tobe authed.  
+     * redis server connection need to be authed when redis_password is set.
+     */
+    if( (client && sp->b_pass ) || (!client && sp->b_redis_pass && redis )){
+        conn->authed = 0;
+    }else{
+        conn->authed = 1;
+    }
 
     if (conn->client) {
         /*
@@ -241,6 +258,8 @@ conn_get_proxy(void *owner)
     conn->redis = pool->redis;
 
     conn->proxy = 1;
+
+    conn->authed = 1; /* proxy need not auth */
 
     conn->recv = proxy_recv;
     conn->recv_next = NULL;
@@ -319,6 +338,7 @@ conn_recv(struct conn *conn, void *buf, size_t size)
     ASSERT(conn->recv_ready);
 
     for (;;) {
+
         n = nc_read(conn->sd, buf, size);
 
         log_debug(LOG_VERB, "recv on sd %d %zd of %zu", conn->sd, n, size);

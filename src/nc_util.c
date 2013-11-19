@@ -631,7 +631,7 @@ void nc_ltrim(char *s){
 }
 
 void nc_rtrim(char *s){
-    int i;
+    size_t i;
     i = strlen(s) - 1;
     while((s[i] ==' ' || s[i] == '\t') && i>=0 ) { i--; }
     s[i+1] = '\0';

@@ -593,6 +593,12 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
         status = NC_OK;
         break;
 
+    case MSG_PARSE_AUTH:
+        // auth info process todo
+        printf("MSG_PARSE_AUTH\n\n");
+        status = msg_parsed(ctx, conn, msg);
+        break;
+
     default:
         status = NC_ERROR;
         conn->err = errno;
@@ -610,6 +616,11 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     struct mbuf *mbuf;
     size_t msize;
     ssize_t n;
+    int flag = 0;
+
+    if(msg->result == MSG_PARSE_AUTH && conn->client == 0){
+        flag = 1;
+    }
 
     mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
     if (mbuf == NULL || mbuf_full(mbuf)) {
@@ -622,15 +633,19 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     }
     ASSERT(mbuf->end - mbuf->last > 0);
 
+
     msize = mbuf_size(mbuf);
 
+
     n = conn_recv(conn, mbuf->last, msize);
+
     if (n < 0) {
         if (n == NC_EAGAIN) {
             return NC_OK;
         }
         return NC_ERROR;
     }
+
 
     ASSERT((mbuf->last + n) <= mbuf->end);
     mbuf->last += n;
@@ -691,6 +706,12 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     size_t nsend, nsent;                 /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
     ssize_t n;                           /* bytes sent by sendv */
+
+    int flag = 0;
+
+    if(msg->result == MSG_PARSE_AUTH && conn->client == 0){
+        flag = 1;
+    }
 
     TAILQ_INIT(&send_msgq);
 
@@ -811,10 +832,15 @@ msg_send(struct context *ctx, struct conn *conn)
 
     conn->send_ready = 1;
     do {
-        msg = conn->send_next(ctx, conn);
+        msg = conn->send_next(ctx, conn);  
+
         if (msg == NULL) {
             /* nothing to send */
             return NC_OK;
+        }
+
+        if( msg->result == MSG_PARSE_AUTH){
+            printf("in msg send: MSG_PARSE_AUTH \n\n");
         }
 
         status = msg_send_chain(ctx, conn, msg);

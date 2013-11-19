@@ -514,19 +514,6 @@ nc_post_run(struct instance *nci)
     log_deinit();
 }
 
-/* reload config file */
-static int reload_config(struct instance *nci,struct context *ctx){
-    if( !nc_test_conf(nci) ){
-        log_stderr("reload config failed: the config file format or syntax err,please check !");
-        return 1;
-	}
-
-    /* reload file */
-    log_stderr("reload config here!");
-
-    return 0;
-}
-
 static void
 nc_run(struct instance *nci)
 {
@@ -544,8 +531,6 @@ nc_run(struct instance *nci)
         if (status != NC_OK) {
             break;
         }
-		/* reload config */
-        /* reload_config(nci,ctx); */
     }
 
     core_stop(ctx);

@@ -17,6 +17,8 @@
 
 #include <nc_core.h>
 #include <nc_server.h>
+#include <stdio.h>
+
 
 struct msg *
 req_get(struct conn *conn)
@@ -364,6 +366,7 @@ static bool
 req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
 {
     ASSERT(conn->client && !conn->proxy);
+    struct server_pool *sp = NULL;
 
     if (msg_empty(msg)) {
         ASSERT(conn->rmsg == NULL);
@@ -386,6 +389,79 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         req_put(msg);
         return true;
     }
+
+    
+    // in auth-ing or  not authenticated access; here we build the response message directly
+    if( msg->result == MSG_PARSE_AUTH || conn->authed == 0){
+
+        log_debug(LOG_INFO, "in auth command");
+        struct msg *resp = msg_get(conn, false, conn->redis);
+        struct mbuf *mbuf;
+        size_t msize;
+        ssize_t n;
+        sp = conn->owner;
+
+
+        msg->peer = resp;
+        resp->peer= msg;
+
+        msg->done = 1;
+        resp->done = 1;
+
+        // set mbuf
+        mbuf = STAILQ_LAST(&resp->mhdr, mbuf, next);
+        if( mbuf == NULL || mbuf_full(mbuf)){
+            mbuf = mbuf_get();
+            if( mbuf == NULL){
+                return NC_ENOMEM;
+            }
+
+            mbuf_insert(&resp->mhdr, mbuf);
+            resp->pos = mbuf->pos;
+        }
+
+        ASSERT(mbuf->end - mbuf->last > 0);
+        msize = mbuf_size(mbuf);
+
+        if( msg->result == MSG_PARSE_AUTH ){ /* auth command  */
+
+            /* empty password, if receive auth command,we return error */
+            if(!sp->b_pass){
+                n = nc_snprintf(mbuf->last,100,"-ERR Client sent AUTH, but no password is set"CRLF);
+
+            }else if( (sp->password.len == msg->key_end - msg->key_start)  ||
+                    (!nc_strncmp(sp->password.data, msg->key_start, msg->key_end - msg->key_start))){
+                /* check the password OK */
+                n = nc_snprintf(mbuf->last,100,"+OK"CRLF);
+                conn->authed = 1;
+
+            }else{
+                /* password error */
+                n = nc_snprintf(mbuf->last,100,"-ERR invalid password"CRLF);
+                conn->authed = 0;
+            }
+        }else if(conn->authed == 0){
+                n = nc_snprintf(mbuf->last,100,"-ERR operation not permitted"CRLF);
+        }else{
+            /* never come here */
+            NOT_REACHED();
+        }
+        
+        ASSERT(mbuf->last + n <= mbuf->end);
+
+        mbuf->last += n;
+        resp->mlen += n;
+
+
+        conn->enqueue_outq(ctx, conn, msg);
+
+        rstatus_t t = event_add_out(ctx->evb, conn);
+        if(t != NC_OK )
+            conn->err = errno;
+
+        return true;
+    }
+    
 
     return false;
 }
@@ -473,6 +549,15 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     }
 
     s_conn = server_pool_conn(ctx, c_conn->owner, key, keylen);
+
+    /*
+    if( pool->b_redis_pass && s_conn->authed == 0){
+        log_debug(LOG_VERB,"s_conn is un-authed\n ");
+        req_forward_error(ctx, c_conn, msg);
+        return;
+    }
+    */
+
     if (s_conn == NULL) {
         req_forward_error(ctx, c_conn, msg);
         return;

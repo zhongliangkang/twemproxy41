@@ -20,7 +20,7 @@
 #include <nc_server.h>
 #include <proto/nc_proto.h>
 
-/*
+
 #define DEFINE_ACTION(_hash, _name) string(#_name),
 static struct string hash_strings[] = {
     HASH_CODEC( DEFINE_ACTION )
@@ -41,7 +41,7 @@ static struct string dist_strings[] = {
     null_string
 };
 #undef DEFINE_ACTION
-*/
+
 
 static struct command conf_commands[] = {
     { string("listen"),
@@ -81,17 +81,17 @@ static struct command conf_commands[] = {
 
     { string("redis"),
       conf_set_bool,
-      conf_get_num,
+      conf_get_bool,
       offsetof(struct conf_pool, redis) },
 
     { string("preconnect"),
       conf_set_bool,
-      conf_get_num,
+      conf_get_bool,
       offsetof(struct conf_pool, preconnect) },
 
     { string("auto_eject_hosts"),
       conf_set_bool,
-      conf_get_num,
+      conf_get_bool,
       offsetof(struct conf_pool, auto_eject_hosts) },
 
     { string("server_connections"),
@@ -113,6 +113,16 @@ static struct command conf_commands[] = {
       conf_add_server,
       conf_get_servers,
       offsetof(struct conf_pool, server) },
+
+    { string("password"),
+      conf_set_string,
+      conf_get_string,
+      offsetof(struct conf_pool, password) },
+
+    { string("redis_password"),
+      conf_set_string,
+      conf_get_string,
+      offsetof(struct conf_pool, redis_password) },
 
     null_command
 };
@@ -201,6 +211,8 @@ conf_pool_init(struct conf_pool *cp, struct string *name)
     rstatus_t status;
 
     string_init(&cp->name);
+    string_init(&cp->password);
+    string_init(&cp->redis_password);
 
     string_init(&cp->listen.pname);
     string_init(&cp->listen.name);
@@ -289,6 +301,11 @@ conf_pool_each_transform(void *elem, void *data)
     sp->next_rebuild = 0LL;
 
     sp->name = cp->name;
+    sp->password = cp->password;
+    sp->redis_password = cp->redis_password;
+
+    sp->b_pass = string_empty(&sp->password)? 0:1;
+    sp->b_redis_pass = string_empty(&sp->redis_password)? 0:1;
 
     sp->addrstr = cp->listen.pname;
     sp->port = (uint16_t)cp->listen.port;
@@ -1842,7 +1859,7 @@ conf_set_hashtag(struct conf *cf, struct command *cmd, void *conf)
 int 
 conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
         //snprintf(result,80,"sp_name:%s\nsp_item:%s\n",sp_name,sp_item);
-        int n,m,i,j,offset=-1;
+        uint32_t n,m,i;
         struct array *arr = sp;
         int rt;
 
@@ -1865,12 +1882,12 @@ conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
                         } */
 
                         rt = sp_get_config_by_string(tcf, &item, result);
-                        if( rt != NC_OK){
+                        if( rt != NC_OK && rt != NC_DEF_CONF){
                             log_error("get config by string fail: %s\n",sp_item );
                             snprintf(result,80,"get config by string fail: %s\n",sp_item );
                             return NC_ERROR;
                         }else{
-                            return NC_OK;
+                            return rt;
                         }
 
                 }
@@ -1881,92 +1898,115 @@ conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
         return NC_ERROR;
 }
 
-char * conf_get_string( struct conf_pool *sp, struct command *spc, char * data){
+rstatus_t conf_get_string( struct conf_pool *sp, struct command *spc, char * data){
     uint8_t *p;
     struct string *field ;
 
-    p = sp;
+    p = (uint8_t *)sp;
     field = (struct string *)(p + spc->offset);
 
     if( field->len){
-        snprintf(data, field->len,"%s",field->data);
+        snprintf(data, field->len + 1,"%s",field->data);
         return  NC_OK;
     }
     
     //err
-    return "null config item found!";
+    return NC_ERROR;
 }
 
-char * conf_get_listen( struct conf_pool *sp, struct command *spc, char * data){
+rstatus_t conf_get_listen( struct conf_pool *sp, struct command *spc, char * data){
     uint8_t *p;
     struct conf_listen *field = NULL;
 
-    p = sp;
+    p = (uint8_t *)sp;
     field = (struct conf_listen *)(p + spc->offset);
 
     if( field != NULL){
-        snprintf(data, field->pname.len,"%s", field->pname.data);
+        snprintf(data, field->pname.len + 1,"%s", field->pname.data);
         return  NC_OK;
     }
     
     //err
-    return "null config item found!";
+    return NC_ERROR;
 }
 
 
-char * conf_get_num( struct conf_pool *sp, struct command *spc, char * data){
+rstatus_t conf_get_num( struct conf_pool *sp, struct command *spc, char * data){
     uint8_t *p;
     int *field = NULL;
 
-    p = sp;
+    p = (uint8_t *)sp;
+    field = (int *)(p + spc->offset);
+
+
+    if( field != NULL){
+
+        if( *field == CONF_UNSET_NUM){
+            snprintf(data,36,"%d (default value,user not config)",*field);
+            return NC_DEF_CONF;
+        }else{
+            snprintf(data,16,"%d",*field);
+            return  NC_OK;
+        }
+    }
+    
+    //err
+    return NC_ERROR;
+}
+
+rstatus_t conf_get_bool( struct conf_pool *sp, struct command *spc, char * data){
+    uint8_t *p;
+    int *field = NULL;
+
+    p = (uint8_t *)sp;
     field = (int *)(p + spc->offset);
 
     if( field != NULL){
-        snprintf(data,16,"%d",*field);
+        snprintf(data,16,"%s",*field == 1? "true":"false");
         return  NC_OK;
     }
     
     //err
-    return "null config item found!";
+    return NC_ERROR;
 }
 
 
-char * conf_get_hash( struct conf_pool *sp, struct command *spc, char * data){
+rstatus_t conf_get_hash( struct conf_pool *sp, struct command *spc, char * data){
     uint8_t *p;
     hash_type_t *field = NULL;
     struct string *hs;
 
-    p = sp;
+    p = (uint8_t *)sp;
     field = (hash_type_t *)(p + spc->offset);
 
 
     if( field != NULL){
         hs = hash_strings + (*field);
-        snprintf(data, sizeof(hs->data),"%s",hs->data);
+        snprintf(data, sizeof(hs->data)+1,"%s",hs->data);
         return  NC_OK;
     }
     
     //err
-    return "null config item found!";
+    return NC_ERROR;
 }
 
-char * conf_get_distribution( struct conf_pool *sp, struct command *spc, char * data){
+rstatus_t conf_get_distribution( struct conf_pool *sp, struct command *spc, char * data){
     uint8_t *p;
     dist_type_t *field = NULL;
     struct string *hs;
 
-    p = sp;
+    p = (uint8_t *)sp;
     field = (dist_type_t *)(p + spc->offset);
 
     hs = dist_strings + *field;
 
     if( field != NULL){
-        snprintf(data, sizeof(hs->data),"%s",hs->data);
+        snprintf(data, sizeof(hs->data) + 1,"%s",hs->data);
         return  NC_OK;
     }
     
     //err
-    return "null config item found!";
+    return NC_ERROR;
 }
 
 int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * result){
@@ -1974,7 +2014,7 @@ int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * re
 
      log_debug(LOG_VERB, " in sp_get_config_by_string");
     for(spp = conf_commands; spp->name.len != 0; spp++){
-        char *rv;
+        rstatus_t rv;
 
         if(string_compare( item, &spp->name) !=0){
             continue;
@@ -1982,12 +2022,12 @@ int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * re
 
         rv = spp->get(sp, spp, result);
 
-        if(rv != NC_OK){
+        if(rv != NC_OK && rv!= NC_DEF_CONF){
             log_error("sp_get_conf_by_string error: \"%.*s\" %s", item->len, item->data, rv);
             return NC_ERROR;
         }
 
-        return NC_OK;
+        return rv;
     }
 
     log_error("sp_get_conf_by_string error: \"%.*s\" is unkown",item->len, item->data);
@@ -1995,14 +2035,12 @@ int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * re
     return NC_ERROR;
 }
 
-char *conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
+rstatus_t conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
     uint8_t *p;
     struct array *arr= NULL;
     int svr_num=0;
     int i;
     char *strp;
-
-    struct string *hs;
 
     p = cf;
     arr = (struct array *)(p + cmd->offset);
@@ -2021,13 +2059,147 @@ char *conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
 }
 
 
-rstatus_t  sp_write_conf_file(struct conf_pool *cp, struct server_pool *sp, char* file_name){
+static char * 
+sp_write_line( char * conf_buff, char *line, int conf_level, bool with_head,bool change_line){
 
+    if( with_head){
+        switch(conf_level){
+            case 0:     /* yml root conf */
+                break;
+            case 1:     /* yml level 1 conf */
+                nc_snprintf(conf_buff, 3, "  ");
+                conf_buff += 2;
+                break;
+            case 2:
+                nc_snprintf(conf_buff,6 ,"   - ");
+                conf_buff += 5;
+                break;
+            default:
+                NOT_REACHED();
+                ASSERT(0);
+        }
+    }
+
+    if(change_line){
+        nc_snprintf( conf_buff, nc_strlen(line) + 2,"%s\n", line);
+        conf_buff += nc_strlen(line) + 1;
+    }else{
+        nc_snprintf( conf_buff, nc_strlen(line) + 1,"%s", line);
+        conf_buff += nc_strlen(line) ;
+    }
+
+
+    return conf_buff;
 }
+
+
+/* rewrite config */
+rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, char *new_pname){
+    struct conf *cf;
+    char  *conf_filename = NULL;
+
+    /* buffer for config file */
+    char  new_conffile[CONF_MAX_LENGTH];
+    char  * p_conf;  /* pointer point to the end of config file */
+    uint32_t i,j, sp_num, svr_num;
+    struct array *pool;
+    struct server_pool *lsp;
+    struct server *svr;
+    struct conf_pool *tcf;
+
+    struct command *cmd;
+
+    FILE *fh;
+
+    ASSERT(sp->ctx->cf);
+    ASSERT(&sp->ctx->pool);
+
+    cf = sp->ctx->cf;
+    pool = &sp->ctx->pool;
+
+    sp_num = array_n(pool);
+
+    conf_filename = cf->fname;
+    p_conf = new_conffile;
+
+    ASSERT(conf_filename);
+
+    fh = fopen(conf_filename, "w");
+    if (fh == NULL) {
+        log_error("conf: failed to open configuration '%s': %s", conf_filename,
+                strerror(errno));
+        return NC_ERROR;
+    }
+
+
+    // read the config, and replace the new config
+    for( i=0; i<sp_num; i++){
+        lsp = array_get(pool, i);
+        tcf = array_get(&cf->pool, i);
+
+        ASSERT(lsp);
+        ASSERT(tcf);
+
+        char conf_item[1024];  /* each conf line 1k */
+        char conf_item2[1024];  /* each conf line 1k */
+        int ret;
+
+
+        nc_snprintf(conf_item, 1024,"%s:", lsp->name.data);
+
+        p_conf = sp_write_line(p_conf, conf_item, 0, true, true); /* root config */
+
+        /* read each config item */ 
+        for (cmd = conf_commands; cmd->name.len != 0; cmd++) {
+
+
+            if( !strcmp(cmd->name.data, "servers")||
+                    !strcmp(cmd->name.data, "client_connections")){
+                //ret = sp_get_by_item(lsp->name.data,"server",conf_item, pool);
+                ///* skip client_connections  and servers */
+                continue;      
+            }
+
+            snprintf(conf_item2,1024,"%s: ", cmd->name.data);
+            ret = conf_get_by_item(lsp->name.data ,cmd->name.data , conf_item, &cf->pool);
+
+            log_debug(LOG_VERB, "get item: %s %s => %s",lsp->name.data, cmd->name.data, conf_item);
+
+            if(ret == NC_OK){
+                p_conf = sp_write_line(p_conf, conf_item2, 1,true,false);
+                p_conf = sp_write_line(p_conf, conf_item, 1, false, true);
+            }
+        }
+
+        
+        p_conf = sp_write_line(p_conf, "servers:", 1, true, true);
+        svr_num = array_n(&lsp->server);
+        for(j=0; j< svr_num; j++){
+            svr = array_get(&lsp->server,j);
+            if( i == sp_idx && j == svr_idx){
+                // the server changed, write new config 
+                p_conf = sp_write_line(p_conf, new_pname, 2, true, true);
+            }else{
+                p_conf = sp_write_line(p_conf, (char *)svr->pname.data, 2, true, true);
+            }
+        }
+        
+    }
+
+
+    ASSERT( p_conf - new_conffile < CONF_MAX_LENGTH);
+
+    fprintf(fh, "%s", new_conffile);
+    fclose(fh);
+
+    return NC_OK;
+}
+
+
 
 rstatus_t conf_check_hash_keys(struct conf_pool *p){
     bool keys_flag[MODHASH_TOTAL_KEY];
-    int n_server, i, j, hash_count;
+    uint32_t n_server, i, j, hash_count;
 
     memset(keys_flag, 0, sizeof(keys_flag));
 
