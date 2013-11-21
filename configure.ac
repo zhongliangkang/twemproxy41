@@ -2,6 +2,7 @@
 m4_define([NC_MAJOR], 0)
 m4_define([NC_MINOR], 2)
 m4_define([NC_PATCH], 4)
+m4_define([NC_TX_PATCH], v0.1)
 m4_define([NC_BUGS], [manj@twitter.com])
 
 # Initialize autoconf
@@ -19,7 +20,7 @@ AM_INIT_AUTOMAKE([1.9 foreign])
 AC_DEFINE(NC_VERSION_MAJOR, NC_MAJOR, [Define the major version number])
 AC_DEFINE(NC_VERSION_MINOR, NC_MINOR, [Define the minor version number])
 AC_DEFINE(NC_VERSION_PATCH, NC_PATCH, [Define the patch version number])
-AC_DEFINE(NC_VERSION_STRING, "NC_MAJOR.NC_MINOR.NC_PATCH", [Define the version string])
+AC_DEFINE(NC_VERSION_STRING, "NC_MAJOR.NC_MINOR.NC_PATCH-NC_TX_PATCH", [Define the version string])
 
 # Checks for language
 AC_LANG([C])

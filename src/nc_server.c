@@ -577,6 +577,7 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
             log_debug(LOG_DEBUG, "connecting on s %d to server '%.*s'",
                       conn->sd, server->pname.len, server->pname.data);
             //return NC_OK;
+            printf("EINPROGRESS\n");
             goto con_ok;
         }
 
@@ -1600,6 +1601,8 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
     struct server_pool *sp;
     int n;
 
+    rstatus_t status;
+
     char auth_str[1024];
     char auth_recv[1024];
 
@@ -1616,9 +1619,22 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
 
     // concat the auth command
     nc_snprintf(auth_str,1024,"*2"CRLF"$4"CRLF"auth"CRLF"$%d"CRLF"%s"CRLF,sp->redis_password.len,sp->redis_password.data);
+
+    status = nc_set_blocking(s_conn->sd);
+    if (status != NC_OK) {
+        log_error("set block on s %d for server on auth step  failed: %s",
+                  s_conn->sd, strerror(errno));
+        return NC_ERROR;
+    }
+
+    //send auth 
     n = nc_write(s_conn->sd,auth_str,nc_strlen(auth_str));
 
-    log_debug(LOG_VERB, "send server return:%s %d.\n\n",auth_str,n);
+    if(n<0 ){
+        nc_set_nonblocking(s_conn->sd);
+        return NC_ERROR;
+    }
+    printf("send server return:%s %d.\n\n",auth_str,n);
 
 
     // receive the auth result
@@ -1635,6 +1651,15 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
             log_error("recv on sd %d failed: err info: %d %s",s_conn->sd,errno, strerror(errno));
             return NC_ERROR;
         }
+    }
+
+    // auth returna, set s_conn as noblocking
+    status = nc_set_nonblocking(s_conn->sd);
+
+    if (status != NC_OK) {
+        log_error("set nonblock on s %d for server on auth step  failed: %s",
+                  s_conn->sd, strerror(errno));
+        return NC_ERROR;
     }
 
     log_debug(LOG_VERB, "redis server return:%s %d.\n\n",auth_recv,n);

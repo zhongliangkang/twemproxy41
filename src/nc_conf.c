@@ -2124,13 +2124,7 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, c
 
     ASSERT(conf_filename);
 
-    fh = fopen(conf_filename, "w");
-    if (fh == NULL) {
-        log_error("conf: failed to open configuration '%s': %s", conf_filename,
-                strerror(errno));
-        return NC_ERROR;
-    }
-
+   
 
     // read the config, and replace the new config
     for( i=0; i<sp_num; i++){
@@ -2188,6 +2182,13 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, c
 
 
     ASSERT( p_conf - new_conffile < CONF_MAX_LENGTH);
+
+    fh = fopen(conf_filename, "w");
+    if (fh == NULL) {
+        log_error("conf: failed to open configuration '%s': %s", conf_filename,
+                strerror(errno));
+        return NC_ERROR;
+    }
 
     fprintf(fh, "%s", new_conffile);
     fclose(fh);
