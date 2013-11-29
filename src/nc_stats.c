@@ -744,7 +744,7 @@ stats_send_rsp(struct stats *st)
     rstatus_t status;
     ssize_t n;
     int sd;
-    char result[1024];
+    char result[1024*100];
     char recv_command[MAX_COMMAND_LENGTH*MAX_COMMAND_FIELD];
     char *cmd_p[MAX_COMMAND_FIELD];
     char *p,*key_point;
@@ -818,6 +818,7 @@ stats_send_rsp(struct stats *st)
         if(rt != NC_OK){
             log_error("err ret:%d . msg: %s\n",rt, result);
         }
+        log_error("get servers ret:%d . msg: %s\n",rt, result);
         n = nc_sendn(sd, result, strlen(result));
     }else if(!strcmp(cmd_p[0],"add") && n_field == 6){         /* add server */
         //int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);

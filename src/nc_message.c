@@ -595,7 +595,7 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
 
     case MSG_PARSE_AUTH:
         // auth info process todo
-        printf("MSG_PARSE_AUTH\n\n");
+        log_debug(LOG_VERB,"MSG_PARSE_AUTH\n");
         status = msg_parsed(ctx, conn, msg);
         break;
 

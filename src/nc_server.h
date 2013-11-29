@@ -169,12 +169,12 @@ void server_pool_deinit(struct array *server_pool);
 
 struct sp_config{
     struct string name;
-    char   *(*get)(struct server_pool *sp, struct sp_config *spc, char *data);
+    int   (*get)(struct server_pool *sp, struct sp_config *spc, char *data);
     int    offset;
 };
 
 
-char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result);
+int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result);
 
 int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 #define null_config { null_string, NULL, 0 }

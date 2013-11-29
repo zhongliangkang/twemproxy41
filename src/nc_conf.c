@@ -2023,7 +2023,7 @@ int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * re
         rv = spp->get(sp, spp, result);
 
         if(rv != NC_OK && rv!= NC_DEF_CONF){
-            log_error("sp_get_conf_by_string error: \"%.*s\" %s", item->len, item->data, rv);
+            log_error("sp_get_conf_by_string error: \"%.*s\" %d", item->len, item->data, rv);
             return NC_ERROR;
         }
 

@@ -594,7 +594,7 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
 
 
 con_ok:
-    printf("connect to server %s\n\n\n",server->pname.data);
+    log_debug(LOG_VERB, "connect to server %s\n\n\n",server->pname.data);
 
     con_ret = server_send_redis_auth(ctx, conn);
 
@@ -993,7 +993,7 @@ server_pool_deinit(struct array *server_pool)
 
 
 
-char * sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result){
+int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result){
     uint8_t *p;
     struct array *arr= NULL; 
     uint32_t svr_num=0,i;
@@ -1072,7 +1072,7 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
 
     log_debug(LOG_VERB, " in server_pool_get_config_by_string");
     for(spp = sp_config_arr ; spp->name.len != 0; spp++){
-        char *rv = NULL;
+        int rv ;
 
         if(string_compare( item, &spp->name) !=0){
             continue;
@@ -1081,7 +1081,7 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
         rv = spp->get(sp, spp, result);
 
         if(rv != NC_OK){
-            log_error("server_pool_get_config_by_string error: \"%.*s\" %s", item->len, item->data, rv);
+            log_error("server_pool_get_config_by_string error: \"%.*s\" %d", item->len, item->data, rv);
             return NC_ERROR;
         }
 
@@ -1634,7 +1634,7 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
         nc_set_nonblocking(s_conn->sd);
         return NC_ERROR;
     }
-    printf("send server return:%s %d.\n\n",auth_str,n);
+    log_debug(LOG_VERB, "send server return:%s %d.\n\n",auth_str,n);
 
 
     // receive the auth result
