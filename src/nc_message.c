@@ -599,6 +599,12 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
         status = msg_parsed(ctx, conn, msg);
         break;
 
+    case MSG_PARSE_GETSERVER:
+        // get server command
+        log_debug(LOG_VERB,"MSG_PARSE_GETSERVER\n");
+        status = msg_parsed(ctx, conn, msg);
+        break;
+
     default:
         status = NC_ERROR;
         conn->err = errno;

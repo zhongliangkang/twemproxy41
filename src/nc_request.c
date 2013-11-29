@@ -390,6 +390,62 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         return true;
     }
 
+    /* getserver command: here access not need authed */
+    if(msg->result == MSG_PARSE_GETSERVER){
+
+        log_debug(LOG_INFO, "in getserver command");
+        struct msg *resp = msg_get(conn, false, conn->redis);
+        struct mbuf *mbuf;
+        size_t msize;
+        ssize_t n;
+        uint32_t key_len;
+        uint8_t  *key;
+        struct server *server;
+        sp = conn->owner;
+
+
+        msg->peer = resp;
+        resp->peer= msg;
+
+        msg->done = 1;
+        resp->done = 1;
+
+        // set mbuf
+        mbuf = STAILQ_LAST(&resp->mhdr, mbuf, next);
+        if( mbuf == NULL || mbuf_full(mbuf)){
+            mbuf = mbuf_get();
+            if( mbuf == NULL){
+                return NC_ENOMEM;
+            }
+
+            mbuf_insert(&resp->mhdr, mbuf);
+            resp->pos = mbuf->pos;
+        }
+
+        ASSERT(mbuf->end - mbuf->last > 0);
+        msize = mbuf_size(mbuf);
+
+        key_len = msg->key_end - msg->key_start;
+        key     = msg->key_start;
+
+        server = server_pool_server(sp, key, key_len);
+
+        n = nc_snprintf(mbuf->last,100,"$%d"CRLF"%s"CRLF, server->name.len,server->name.data);
+        ASSERT(mbuf->last + n <= mbuf->end);
+
+        mbuf->last += n;
+        resp->mlen += n;
+
+
+        conn->enqueue_outq(ctx, conn, msg);
+
+        rstatus_t t = event_add_out(ctx->evb, conn);
+        if(t != NC_OK )
+            conn->err = errno;
+
+        return true;
+
+    }
     
     // in auth-ing or  not authenticated access; here we build the response message directly
     if( msg->result == MSG_PARSE_AUTH || conn->authed == 0){
@@ -461,7 +517,7 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
 
         return true;
     }
-    
+
 
     return false;
 }

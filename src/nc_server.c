@@ -704,7 +704,7 @@ server_pool_hash(struct server_pool *pool, uint8_t *key, uint32_t keylen)
     return pool->key_hash((char *)key, keylen);
 }
 
-static struct server *
+struct server *
 server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
 {
     struct server *server;
@@ -1449,8 +1449,9 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
     struct string addr;
 
     char old_ip[20],new_ip[20];
-    int  old_port,new_port, oldsvr_index;
+    int  old_port,new_port, oldsvr_index, newsvr_index;
     bool is_oldsvr_exist = false;
+    bool is_newsvr_exist = false;
     struct sockinfo *ski ;
     char            *new_name;
     char            *new_pname;
@@ -1496,6 +1497,15 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
                     is_oldsvr_exist = true;
                     oldsvr_index = j;
                     break;
+                }
+
+                //check if the new server exist?
+                if(! nc_strncmp( svr->name.data, new_instance, strlen(new_instance)) || 
+                        (svr->reload_svr && !nc_strncmp( svr->mif.new_name, new_instance, strlen(new_instance)))){
+                    is_newsvr_exist = true;
+                    newsvr_index = j;
+                    snprintf(result,80,"server %s already exits in server pool %s\n",old_instance, sp_name );
+                    return NC_ERROR;
                 }
             }
 

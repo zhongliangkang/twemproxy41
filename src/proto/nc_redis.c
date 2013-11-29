@@ -58,6 +58,7 @@ redis_arg0(struct msg *r)
     case MSG_REQ_REDIS_ZCARD:
 
     case MSG_REQ_REDIS_AUTH: /* auth */
+    case MSG_REQ_REDIS_GETSERVER: /* getserver command,for twemproxy only */
         return true;
 
     default:
@@ -844,6 +845,12 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                /* getserver command for twemproxy only! */
+                if (str9icmp(m, 'g', 'e', 't', 's', 'e', 'r', 'v', 'e', 'r')) {
+                    r->type = MSG_REQ_REDIS_GETSERVER;
+                    break;
+                }
+
                 break;
 
             case 10:
@@ -1499,7 +1506,10 @@ done:
     /* special process for auth */
     if ( r->type == MSG_REQ_REDIS_AUTH){
         r->result = MSG_PARSE_AUTH;
-    }else{
+    }else if(r->type == MSG_REQ_REDIS_GETSERVER){
+        r->result = MSG_PARSE_GETSERVER;
+    }
+    else{
         r->result = MSG_PARSE_OK;
     }
 
