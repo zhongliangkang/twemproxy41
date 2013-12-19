@@ -442,21 +442,29 @@ server_close(struct context *ctx, struct conn *conn)
                       " type %d", conn->sd, msg->id, msg->mlen, msg->type);
             req_put(msg);
         } else {
-            c_conn = msg->owner;
-            ASSERT(c_conn->client && !c_conn->proxy);
 
             msg->done = 1;
             msg->error = 1;
             msg->err = conn->err;
 
-            if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {
-                event_add_out(ctx->evb, msg->owner);
-            }
+            c_conn = msg->owner;
+            
+            if( c_conn == NULL){
+                // server auth command
+                msg_put(msg);
+                log_debug(LOG_INFO, "server send auth command error: %d  %s",conn->err, conn->err?strerror(conn->err): " ");
+            } else{
+                ASSERT(c_conn->client && !c_conn->proxy);
 
-            log_debug(LOG_INFO, "close s %d schedule error for req %"PRIu64" "
-                      "len %"PRIu32" type %d from c %d%c %s", conn->sd, msg->id,
-                      msg->mlen, msg->type, c_conn->sd, conn->err ? ':' : ' ',
-                      conn->err ? strerror(conn->err): " ");
+                if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {
+                    event_add_out(ctx->evb, msg->owner);
+                }
+
+                log_debug(LOG_INFO, "close s %d schedule error for req %"PRIu64" "
+                        "len %"PRIu32" type %d from c %d%c %s", conn->sd, msg->id,
+                        msg->mlen, msg->type, c_conn->sd, conn->err ? ':' : ' ',
+                        conn->err ? strerror(conn->err): " ");
+            }
         }
     }
     ASSERT(TAILQ_EMPTY(&conn->imsg_q));
@@ -473,20 +481,23 @@ server_close(struct context *ctx, struct conn *conn)
             req_put(msg);
         } else {
             c_conn = msg->owner;
-            ASSERT(c_conn->client && !c_conn->proxy);
 
             msg->done = 1;
             msg->error = 1;
             msg->err = conn->err;
 
-            if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {
-                event_add_out(ctx->evb, msg->owner);
+            if(c_conn == NULL){
+                log_debug(LOG_INFO, "server send auth command error: %d  %s",conn->err, conn->err?strerror(conn->err): " ");
+            }else{
+                ASSERT(c_conn->client && !c_conn->proxy);
+                if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {
+                    event_add_out(ctx->evb, msg->owner);
+                }
+                log_debug(LOG_INFO, "close s %d schedule error for req %"PRIu64" "
+                        "len %"PRIu32" type %d from c %d%c %s", conn->sd, msg->id,
+                        msg->mlen, msg->type, c_conn->sd, conn->err ? ':' : ' ',
+                        conn->err ? strerror(conn->err): " ");
             }
-
-            log_debug(LOG_INFO, "close s %d schedule error for req %"PRIu64" "
-                      "len %"PRIu32" type %d from c %d%c %s", conn->sd, msg->id,
-                      msg->mlen, msg->type, c_conn->sd, conn->err ? ':' : ' ',
-                      conn->err ? strerror(conn->err): " ");
         }
     }
     ASSERT(TAILQ_EMPTY(&conn->omsg_q));
@@ -577,7 +588,6 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
             log_debug(LOG_DEBUG, "connecting on s %d to server '%.*s'",
                       conn->sd, server->pname.len, server->pname.data);
             //return NC_OK;
-            printf("EINPROGRESS\n");
             goto con_ok;
         }
 
@@ -1577,6 +1587,7 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
             pthread_mutex_unlock(&svr->mutex);
 
             snprintf(result, 1024, "change banckends from ' %s ' to  ' %s ' success.\n",old_instance, new_instance);
+            loga("change sucess: %s\n",result);
             return NC_OK;
 
         }
@@ -1630,6 +1641,7 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
     // concat the auth command
     nc_snprintf(auth_str,1024,"*2"CRLF"$4"CRLF"auth"CRLF"$%d"CRLF"%s"CRLF,sp->redis_password.len,sp->redis_password.data);
 
+    /*
     status = nc_set_blocking(s_conn->sd);
     if (status != NC_OK) {
         log_error("set block on s %d for server on auth step  failed: %s",
@@ -1685,6 +1697,40 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
     }else{
         log_debug(LOG_VERB, "redis authentication failed: ret:%s ",auth_recv);
     }
+    */
+
+    //////////////////////////////////// new line
+    //  make a new auth packet to send to server.
+
+    struct msg *au_msg= msg_get(s_conn, true, s_conn->redis);
+    struct mbuf *mbuf;
+    size_t msize;
+    mbuf = STAILQ_LAST(&au_msg->mhdr, mbuf, next);
+    if( mbuf == NULL || mbuf_full(mbuf)){
+        mbuf = mbuf_get();
+        if( mbuf == NULL){
+            return NC_ENOMEM;
+        }   
+
+        mbuf_insert(&au_msg->mhdr, mbuf);
+        au_msg->pos = mbuf->pos;
+    }
+
+    ASSERT(mbuf->end - mbuf->last > 0); 
+    msize = mbuf_size(mbuf);
+
+    n =nc_snprintf(mbuf->last,1024,"*2"CRLF"$4"CRLF"auth"CRLF"$%d"CRLF"%s"CRLF,sp->redis_password.len,sp->redis_password.data);
+
+    ASSERT(mbuf->last + n <= mbuf->end);
+    mbuf->last += n;
+    au_msg->mlen += n;
+
+    au_msg->owner = NULL;
+
+
+    s_conn->enqueue_inq(ctx, s_conn, au_msg);
+
+    rstatus_t t = event_add_in(ctx->evb, s_conn);
 
     return NC_OK;
 }

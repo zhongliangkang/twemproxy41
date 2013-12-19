@@ -1883,7 +1883,7 @@ conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
 
                         rt = sp_get_config_by_string(tcf, &item, result);
                         if( rt != NC_OK && rt != NC_DEF_CONF){
-                            log_error("get config by string fail: %s\n",sp_item );
+                            //log_error("get config by string fail: %s\n",sp_item );
                             snprintf(result,80,"get config by string fail: %s\n",sp_item );
                             return NC_ERROR;
                         }else{
@@ -2023,7 +2023,8 @@ int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * re
         rv = spp->get(sp, spp, result);
 
         if(rv != NC_OK && rv!= NC_DEF_CONF){
-            log_error("sp_get_conf_by_string error: \"%.*s\" %d", item->len, item->data, rv);
+            //log_error("sp_get_conf_by_string error: \"%.*s\" %d", item->len, item->data, rv);
+            // maybe the config item is null. as hash_tag
             return NC_ERROR;
         }
 

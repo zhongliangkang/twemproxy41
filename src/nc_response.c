@@ -195,7 +195,7 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     struct msg *pmsg;
     struct conn *c_conn;
 
-    ASSERT(!s_conn->client && !s_conn->proxy);
+   // ASSERT(!s_conn->client && !s_conn->proxy);
 
     /* response from server implies that server is ok and heartbeating */
     server_ok(ctx, s_conn);
@@ -215,6 +215,12 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     msg->pre_coalesce(msg);
 
     c_conn = pmsg->owner;
+
+    if(c_conn == NULL){
+        msg_put(pmsg);
+        return;
+    }
+
     ASSERT(c_conn->client && !c_conn->proxy);
 
     if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {

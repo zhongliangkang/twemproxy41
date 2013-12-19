@@ -417,9 +417,12 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
 {
     struct msg *nmsg;
     struct mbuf *mbuf, *nbuf;
+    char auth_ret[1024];
 
     mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
+    //printf("==msg_parsed:  %s\n ==",mbuf->pos);
     if (msg->pos == mbuf->last) {
+        //printf("recvdon.\n");
         /* no more data to parse */
         conn->recv_done(ctx, conn, msg, NULL);
         return NC_OK;
@@ -431,6 +434,14 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
      * been parsed and nbuf is the portion of the message that is un-parsed.
      * Parse nbuf as a new message nmsg in the next iteration.
      */
+    if(!conn->authed){
+        size_t rn = nc_snprintf(auth_ret,msg->pos - mbuf->pos,"%s",mbuf->pos);
+        loga("auth to server: %s ret: %s.",((struct server *)msg->owner->owner)->name.data, auth_ret);
+        if(strcmp(auth_ret,"+OK")){
+            conn->authed = 1;
+        }
+    }
+
     nbuf = mbuf_split(&msg->mhdr, msg->pos, NULL, NULL);
     if (nbuf == NULL) {
         return NC_ENOMEM;
@@ -845,9 +856,11 @@ msg_send(struct context *ctx, struct conn *conn)
             return NC_OK;
         }
 
+        /*
         if( msg->result == MSG_PARSE_AUTH){
             printf("in msg send: MSG_PARSE_AUTH \n\n");
         }
+        */
 
         status = msg_send_chain(ctx, conn, msg);
         if (status != NC_OK) {

@@ -818,7 +818,6 @@ stats_send_rsp(struct stats *st)
         if(rt != NC_OK){
             log_error("err ret:%d . msg: %s\n",rt, result);
         }
-        log_error("get servers ret:%d . msg: %s\n",rt, result);
         n = nc_sendn(sd, result, strlen(result));
     }else if(!strcmp(cmd_p[0],"add") && n_field == 6){         /* add server */
         //int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
