@@ -157,6 +157,7 @@ typedef enum msg_type {
 
     MSG_REQ_REDIS_AUTH,                   /* add auth method support */
     MSG_REQ_REDIS_GETSERVER,              /* add getserver method support for twemproxy */
+    MSG_REQ_REDIS_MGET_SINGLE_REDIS,      /* add support single redis for mget to fast the query */
 
     MSG_SENTINEL
 } msg_type_t;

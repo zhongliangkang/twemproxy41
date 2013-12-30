@@ -20,6 +20,7 @@
 
 #include <nc_core.h>
 #include <nc_proto.h>
+#include <nc_server.h>
 
 /*
  * Return true, if the redis command accepts no arguments, otherwise
@@ -205,6 +206,7 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_ZREVRANGE:
     case MSG_REQ_REDIS_ZREVRANGEBYSCORE:
     case MSG_REQ_REDIS_ZUNIONSTORE:
+    case MSG_REQ_REDIS_MGET_SINGLE_REDIS:
         return true;
 
     default:
@@ -315,6 +317,13 @@ redis_parse_req(struct msg *r)
         SW_FRAGMENT,
         SW_SENTINEL
     } state;
+
+    struct server_pool *tsp =  (struct server_pool*)r->owner->owner;
+    struct array *tvsr = (struct array *)&(tsp->server);
+    tvsr = (void *)&(tsp->server);
+    uint32_t redis_num = tvsr->nelem;
+    /* flag to identify if the proxy is single redis */
+    bool single_redis = redis_num == 1? true:false;
 
     state = r->state;
     b = STAILQ_LAST(&r->mhdr, mbuf, next);
@@ -541,6 +550,11 @@ redis_parse_req(struct msg *r)
 
                 if (str4icmp(m, 'm', 'g', 'e', 't')) {
                     r->type = MSG_REQ_REDIS_MGET;
+
+                    /* if single redis backends,mark as single */
+                    if( single_redis ){
+                        r->type = MSG_REQ_REDIS_MGET_SINGLE_REDIS;
+                    }
                     break;
                 }
 
@@ -1984,7 +1998,7 @@ redis_post_splitcopy(struct msg *r)
     struct string hstr = string("*2"); /* header string */
 
     ASSERT(r->request);
-    ASSERT(r->type == MSG_REQ_REDIS_MGET || r->type == MSG_REQ_REDIS_DEL);
+    ASSERT(r->type == MSG_REQ_REDIS_MGET || r->type == MSG_REQ_REDIS_DEL );
     ASSERT(!STAILQ_EMPTY(&r->mhdr));
 
     nhbuf = mbuf_get();
