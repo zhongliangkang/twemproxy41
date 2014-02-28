@@ -31,6 +31,7 @@ typedef enum msg_parse_result {
     MSG_PARSE_FRAGMENT,                   /* multi-vector request -> fragment */
     MSG_PARSE_AGAIN,                      /* incomplete -> parse again */
     MSG_PARSE_AUTH,                       /* auth  -> request for auth */
+    MSG_PARSE_PING,                       /* ping  -> request for ping*/
     MSG_PARSE_GETSERVER,                  /* get the right backends for special key */
 } msg_parse_result_t;
 
@@ -158,6 +159,7 @@ typedef enum msg_type {
     MSG_REQ_REDIS_AUTH,                   /* add auth method support */
     MSG_REQ_REDIS_GETSERVER,              /* add getserver method support for twemproxy */
     MSG_REQ_REDIS_MGET_SINGLE_REDIS,      /* add support single redis for mget to fast the query */
+    MSG_REQ_REDIS_PING,                   /* add ping support */
 
     MSG_SENTINEL
 } msg_type_t;

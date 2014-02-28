@@ -60,6 +60,7 @@ redis_arg0(struct msg *r)
 
     case MSG_REQ_REDIS_AUTH: /* auth */
     case MSG_REQ_REDIS_GETSERVER: /* getserver command,for twemproxy only */
+    case MSG_REQ_REDIS_PING: /* ping */
         return true;
 
     default:
@@ -578,6 +579,11 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str4icmp(m, 'p', 'i', 'n', 'g')) {
+                    r->type = MSG_REQ_REDIS_PING;
+                    break;
+                }
+
 
                 break;
 
@@ -965,6 +971,12 @@ redis_parse_req(struct msg *r)
                     state = SW_ARG1_LEN;
                 } else {
                     state = SW_KEY_LEN;
+
+                    /* special process for ping! */
+                    if(r->type == MSG_REQ_REDIS_PING){
+                        state =  SW_KEY_LF;
+                        goto ping_special;
+                    }
                 }
                 break;
 
@@ -1003,6 +1015,7 @@ redis_parse_req(struct msg *r)
                 r->token = NULL;
                 state = SW_KEY_LEN_LF;
             } else {
+                log_error("parse error!\n");
                 goto error;
             }
 
@@ -1050,8 +1063,8 @@ redis_parse_req(struct msg *r)
 
         case SW_KEY_LF:
             switch (ch) {
-            case LF:
-                if (redis_arg0(r)) {
+                case LF:
+ping_special:   if (redis_arg0(r)) {
                     if (r->rnarg != 0) {
                         goto error;
                     }
@@ -1520,6 +1533,8 @@ done:
     /* special process for auth */
     if ( r->type == MSG_REQ_REDIS_AUTH){
         r->result = MSG_PARSE_AUTH;
+    }else if ( r->type == MSG_REQ_REDIS_PING){
+        r->result = MSG_PARSE_PING;
     }else if(r->type == MSG_REQ_REDIS_GETSERVER){
         r->result = MSG_PARSE_GETSERVER;
     }

@@ -446,7 +446,60 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         return true;
 
     }
-    
+    // in ping process for twemproxy
+    if( msg->result == MSG_PARSE_PING ){
+
+        log_debug(LOG_INFO, "in ping command");
+        struct msg *resp = msg_get(conn, false, conn->redis);
+        struct mbuf *mbuf;
+        size_t msize;
+        ssize_t n;
+        sp = conn->owner;
+
+
+        msg->peer = resp;
+        resp->peer= msg;
+
+        msg->done = 1;
+        resp->done = 1;
+
+        // set mbuf
+        mbuf = STAILQ_LAST(&resp->mhdr, mbuf, next);
+        if( mbuf == NULL || mbuf_full(mbuf)){
+            mbuf = mbuf_get();
+            if( mbuf == NULL){
+                return NC_ENOMEM;
+            }
+
+            mbuf_insert(&resp->mhdr, mbuf);
+            resp->pos = mbuf->pos;
+        }
+
+        ASSERT(mbuf->end - mbuf->last > 0);
+        msize = mbuf_size(mbuf);
+
+        if( msg->result == MSG_PARSE_PING){ /* ping command  */
+            n = nc_snprintf(mbuf->last,100,"+PONG"CRLF);
+        }else{
+            /* never come here */
+            NOT_REACHED();
+        }
+        
+        ASSERT(mbuf->last + n <= mbuf->end);
+
+        mbuf->last += n;
+        resp->mlen += n;
+
+
+        conn->enqueue_outq(ctx, conn, msg);
+
+        rstatus_t t = event_add_out(ctx->evb, conn);
+        if(t != NC_OK )
+            conn->err = errno;
+
+        return true;
+    }
+  
     // in auth-ing or  not authenticated access; here we build the response message directly
     if( msg->result == MSG_PARSE_AUTH || conn->authed == 0){
 
