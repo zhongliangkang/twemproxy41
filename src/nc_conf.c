@@ -2059,7 +2059,13 @@ rstatus_t conf_get_servers(struct conf_pool *cf, struct command *cmd, char *resu
     return NC_OK;
 }
 
-
+/*
+ *  conf_buff: output string 
+ *  line: content of config line
+ *  conf_level: 0 => yml root conf, 1 => yml common config , 2 => yml server detail config
+ *  bool with_head:  if need to add head space to fill the config, true need, else not
+ *  bool change_line: if need to print with an '\n' at the end, true need, else not
+ * */
 static char * 
 sp_write_line( char * conf_buff, char *line, int conf_level, bool with_head,bool change_line){
 
@@ -2171,12 +2177,30 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, c
         svr_num = array_n(&lsp->server);
         for(j=0; j< svr_num; j++){
             svr = array_get(&lsp->server,j);
+
+            // add lock,here we need read the svr->reload_svr flag, for safe
+            pthread_mutex_lock(&svr->mutex);
+
             if( i == sp_idx && j == svr_idx){
                 // the server changed, write new config 
                 p_conf = sp_write_line(p_conf, new_pname, 2, true, true);
             }else{
-                p_conf = sp_write_line(p_conf, (char *)svr->pname.data, 2, true, true);
+
+                // bug fix: @2014.5.16 by skykang
+                // maybe there is changed instance, but no connection connected ever,
+                // so here we need to check if there is changed instance,if changed ,use the new instance info
+                if(svr->reload_svr){
+                    
+                    ASSERT((char *)svr->mif.new_pname);
+                    p_conf = sp_write_line(p_conf, (char *)svr->mif.new_pname, 2, true, true);
+                } else{
+
+                    p_conf = sp_write_line(p_conf, (char *)svr->pname.data, 2, true, true);
+                }
             }
+
+            // unlock
+            pthread_mutex_unlock(&svr->mutex);
         }
         
     }

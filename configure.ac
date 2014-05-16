@@ -2,7 +2,7 @@
 m4_define([NC_MAJOR], 0)
 m4_define([NC_MINOR], 2)
 m4_define([NC_PATCH], 4)
-m4_define([NC_TX_PATCH], v0.1)
+m4_define([NC_TX_PATCH], v0.2)
 m4_define([NC_BUGS], [manj@twitter.com])
 
 # Initialize autoconf

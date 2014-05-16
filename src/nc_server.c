@@ -1565,14 +1565,12 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
             }
 
             // step 1: first write new config file
-
             sp_write_conf_file(sp, i, j, new_pname);
 
-
-            // step 2: modify the meminfo,and change the reload_svr flag for loading new config
             /* save new backend information for main thread to modify, thread lock for safe */
             pthread_mutex_lock(&svr->mutex);
 
+            // step 2: modify the meminfo,and change the reload_svr flag for loading new config
             if( svr->reload_svr){  /* modify the instance info,but the old modification has not reload,free the svr->mif */
                 nc_free(svr->mif.ski);
                 nc_free(svr->mif.new_name);
