@@ -180,9 +180,9 @@ struct conf *conf_create(char *filename);
 void conf_destroy(struct conf *cf);
 
 /* tencent add  start */
-int conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
+int conf_get_by_item(uint8_t *sp_name, uint8_t *sp_item ,char *result, void *sp);
 int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
-rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, char *new_name);
+rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t svr_idx, char *new_name);
 rstatus_t conf_check_hash_keys(struct conf_pool *p);
 /* tencent add  end  */
 

@@ -1857,15 +1857,15 @@ conf_set_hashtag(struct conf *cf, struct command *cmd, void *conf)
 }
 
 int 
-conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
+conf_get_by_item(uint8_t *sp_name, uint8_t *sp_item ,char *result, void *sp){
         //snprintf(result,80,"sp_name:%s\nsp_item:%s\n",sp_name,sp_item);
         uint32_t n,m,i;
         struct array *arr = sp;
         int rt;
 
         struct string item;
-        item.data=sp_item;
-        item.len = strlen(sp_item);
+        item.data= (uint8_t *)sp_item;
+        item.len = (uint32_t) nc_strlen (sp_item);
 
         n = array_n(arr);
 
@@ -1874,7 +1874,7 @@ conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
                 struct conf_pool *tcf = array_get(arr,i);
                 //printf("sname: %s\n",tcf->name.data);
                 //in this server pool
-                if(!strcmp(sp_name, tcf->name.data)){
+                if(!strcmp((const char *) sp_name,(const char *) tcf->name.data)){
                          m = array_n(&tcf->server);
                         /*for(j=0;j<m;j++){
                                 struct server *tss = array_get(&tcf->server,j);
@@ -1894,7 +1894,7 @@ conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
         }
 
         // not found the config
-        snprintf(result,80,"cannot find redis pool %s\n",sp_name );
+        snprintf(result,80,"cannot find redis pool %s\n",(const char *)sp_name );
         return NC_ERROR;
 }
 
@@ -2039,11 +2039,11 @@ int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * re
 rstatus_t conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
     uint8_t *p;
     struct array *arr= NULL;
-    int svr_num=0;
-    int i;
+    uint32_t svr_num=0;
+    uint32_t i;
     char *strp;
 
-    p = cf;
+    p = (uint8_t *) cf;
     arr = (struct array *)(p + cmd->offset);
     svr_num = array_n(arr);
 
@@ -2101,7 +2101,7 @@ sp_write_line( char * conf_buff, char *line, int conf_level, bool with_head,bool
 
 
 /* rewrite config */
-rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, char *new_pname){
+rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t  svr_idx, char *new_pname){
     struct conf *cf;
     char  *conf_filename = NULL;
 
@@ -2154,8 +2154,8 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, c
         for (cmd = conf_commands; cmd->name.len != 0; cmd++) {
 
 
-            if( !strcmp(cmd->name.data, "servers")||
-                    !strcmp(cmd->name.data, "client_connections")){
+            if( !strcmp((const char*)cmd->name.data, "servers")||
+                    !strcmp((const char*)cmd->name.data, "client_connections")){
                 //ret = sp_get_by_item(lsp->name.data,"server",conf_item, pool);
                 ///* skip client_connections  and servers */
                 continue;      
@@ -2225,8 +2225,8 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, c
 
 rstatus_t conf_check_hash_keys(struct conf_pool *p){
     bool keys_flag[MODHASH_TOTAL_KEY];
-    uint32_t n_server, i, j, hash_count;
-
+    uint32_t n_server, i,  hash_count;
+    int j;
     memset(keys_flag, 0, sizeof(keys_flag));
 
     ASSERT(p);

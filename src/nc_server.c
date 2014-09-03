@@ -1514,17 +1514,17 @@ int nc_is_valid_instance(char *inst, char *ip, int * port){
     return NC_OK;
 }
 
-int nc_rewrite_yaml_conf (void *sp, char *sp_name) {
 
-}
+
 int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, char *new_instance, char* result){
-    uint32_t n,m ;
+    uint32_t n,m,i,j ;
     struct array *arr = sp_a;
     int rt;
     struct string addr;
 
     char old_ip[20],new_ip[20];
-    int  i,j, old_port,new_port, oldsvr_index, newsvr_index;
+    int  old_port,new_port;
+    uint32_t oldsvr_index, newsvr_index;
     bool is_oldsvr_exist = false;
     bool is_newsvr_exist = false;
     struct sockinfo *ski = NULL;
@@ -1619,7 +1619,7 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
             snprintf(new_name,1024,"%s:%d",new_ip,new_port );
 
             string_init(&addr);
-            rt = string_copy(&addr, new_ip, strlen(new_ip));
+            rt = string_copy(&addr, (uint8_t *) new_ip, (uint32_t) strlen(new_ip));
             if(rt != NC_OK){
                 goto err;
             }
@@ -1688,7 +1688,7 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
     rstatus_t status;
 
     char auth_str[1024];
-    char auth_recv[1024];
+  //  char auth_recv[1024];
 
 
     sp = ((struct server*)s_conn->owner)->owner;
@@ -1786,14 +1786,16 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
 
     ASSERT(mbuf->last + n <= mbuf->end);
     mbuf->last += n;
-    au_msg->mlen += n;
+    au_msg->mlen += (uint32_t)n;
 
     au_msg->owner = NULL;
 
 
     s_conn->enqueue_inq(ctx, s_conn, au_msg);
 
-    rstatus_t t = event_add_in(ctx->evb, s_conn);
-
+    status = event_add_in(ctx->evb, s_conn);
+    if (status != NC_OK) {
+    	//return t; ?
+    }
     return NC_OK;
 }

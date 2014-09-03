@@ -822,7 +822,7 @@ stats_send_rsp(struct stats *st)
         if(!strcmp(cmd_p[2],"servers")){
             rt  = sp_get_by_item(cmd_p[1],"server",result, st->p_sp);
         }else{
-            rt  = conf_get_by_item(cmd_p[1],cmd_p[2],result, st->p_cf);
+            rt  = conf_get_by_item((uint8_t *)cmd_p[1],(uint8_t *)cmd_p[2], result, st->p_cf);
         }
         if(rt != NC_OK){
             log_error("err ret:%d . msg: %s\n",rt, result);
