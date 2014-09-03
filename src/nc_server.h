@@ -66,6 +66,9 @@ typedef uint32_t (*hash_t)(const char *, size_t);
 struct continuum {
     uint32_t index;  /* server index */
     uint32_t value;  /* hash value */
+    uint32_t newindex;  /* new server index, default -1 */
+    unsigned  status:2; /* transfer_status: 0:old; 1,old,new; 2:new*/
+
 };
 
 struct modify_info{
@@ -114,6 +117,7 @@ struct server_pool {
     struct array       server;               /* server[] */
     int                is_modified;          /* if set to 1, the server info is reallocated */
 
+    uint32_t           ntrans_continuum  ;  /* # continuum points in transfer status*/
     uint32_t           ncontinuum;           /* # continuum points */
     uint32_t           nserver_continuum;    /* # servers - live and dead on continuum (const) */
     struct continuum   *continuum;           /* continuum */
@@ -203,4 +207,5 @@ rstatus_t server_check_hash_keys( struct server_pool *sp);
 int nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 
 int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * seqs, char* status, char* result);
+int nc_is_valid_instance(char *inst, char *ip, int * port);
 #endif

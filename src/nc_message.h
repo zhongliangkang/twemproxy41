@@ -155,11 +155,12 @@ typedef enum msg_type {
     MSG_RSP_REDIS_INTEGER,
     MSG_RSP_REDIS_BULK,
     MSG_RSP_REDIS_MULTIBULK,
-
     MSG_REQ_REDIS_AUTH,                   /* add auth method support */
     MSG_REQ_REDIS_GETSERVER,              /* add getserver method support for twemproxy */
     MSG_REQ_REDIS_MGET_SINGLE_REDIS,      /* add support single redis for mget to fast the query */
     MSG_REQ_REDIS_PING,                   /* add ping support */
+
+    MSG_REQ_REDIS_REDIRECT,               /* redirect msg */
 
     MSG_SENTINEL
 } msg_type_t;
@@ -221,6 +222,8 @@ struct msg {
     unsigned             last_fragment:1; /* last fragment? */
     unsigned             swallow:1;       /* swallow response? */
     unsigned             redis:1;         /* redis? */
+
+
 };
 
 TAILQ_HEAD(msg_tqh, msg);

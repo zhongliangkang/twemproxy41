@@ -92,7 +92,7 @@ core_ctx_create(struct instance *nci)
     }
 
     /* initialize event handling for client, proxy and server */
-    ctx->evb = event_base_create(EVENT_SIZE, &core_core);
+    ctx->evb = event_base_create(EVENT_SIZE, &core_core); //1024 , core_core:event handle
     if (ctx->evb == NULL) {
         stats_destroy(ctx->stats);
         server_pool_deinit(&ctx->pool);
@@ -113,7 +113,7 @@ core_ctx_create(struct instance *nci)
         return NULL;
     }
 
-    /* initialize proxy per server pool */
+    /* initialize proxy per server pool, which listen to 12345*/
     status = proxy_init(ctx);
     if (status != NC_OK) {
         server_pool_disconnect(ctx);
@@ -299,7 +299,7 @@ core_core(void *arg, uint32_t events)
 {
     rstatus_t status;
     struct conn *conn = arg;
-    struct context *ctx = conn_to_ctx(conn);
+    struct context *ctx = conn_to_ctx(conn); /* why a data->ptr  */
 
     log_debug(LOG_VVERB, "event %04"PRIX32" on %c %d", events,
               conn->client ? 'c' : (conn->proxy ? 'p' : 's'), conn->sd);
@@ -337,6 +337,9 @@ core_loop(struct context *ctx)
 {
     int nsd;
 
+    /*
+     * event_wait:	wait the msg , and do core_core
+     */
     nsd = event_wait(ctx->evb, ctx->timeout);
     if (nsd < 0) {
         return nsd;

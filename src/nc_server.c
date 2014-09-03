@@ -209,7 +209,7 @@ server_init(struct array *server, struct array *conf_server,
     ASSERT(nserver != 0);
     ASSERT(array_n(server) == 0);
 
-    status = array_init(server, nserver, sizeof(struct server));
+    status = array_init(server, nserver + 1024, sizeof(struct server));
     if (status != NC_OK) {
         return status;
     }
@@ -714,6 +714,9 @@ server_pool_hash(struct server_pool *pool, uint8_t *key, uint32_t keylen)
     return pool->key_hash((char *)key, keylen);
 }
 
+/* *
+ * get  the server of the key
+ */
 struct server *
 server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
 {
@@ -799,9 +802,9 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
             nc_free(server->pname.data);
             nc_free(server->name.data);
             server->pname.data = (uint8_t*)server->mif.new_pname;
-            server->pname.len  = (size_t)nc_strlen(server->mif.new_pname);
+            server->pname.len  = (uint32_t)nc_strlen(server->mif.new_pname);
             server->name.data = (uint8_t*)server->mif.new_name;
-            server->name.len  = (size_t)strlen(server->mif.new_name);
+            server->name.len  = (uint32_t)nc_strlen(server->mif.new_name);
 
             struct server_pool *tpool= server->owner;
             while(!TAILQ_EMPTY(&server->s_conn_q)){
@@ -819,7 +822,7 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
     }
 
 
-    /* pick a connection to a given server */
+    /* pick a connection to a given server from  */
     conn = server_conn(server);
     if (conn == NULL) {
         return NULL;
@@ -1043,7 +1046,7 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
 
         struct string item;
         item.data = (void *)sp_item;
-        item.len = (size_t)nc_strlen(sp_item);
+        item.len = (uint32_t)nc_strlen(sp_item);
 
         n = array_n(arr);
 
@@ -1052,7 +1055,7 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
                 struct server_pool *tcf = array_get(arr,i);
                 //printf("sname: %s\n",tcf->name.data);
                 //in this server pool
-                if(!strcmp(sp_name, tcf->name.data)){
+                if(!strcmp(sp_name, (char *)tcf->name.data)){
                          m = array_n(&tcf->server);
                         /*for(j=0;j<m;j++){
                                 struct server *tss = array_get(&tcf->server,j);
@@ -1104,40 +1107,54 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
 
 }
 
-int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result){
+int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *segs, char *status,char *result){
     uint32_t n,m,i;
     struct array *arr = sp;
     int rt;
     struct string item;
 
-    log_debug(LOG_VERB, " in nc_add_a_server");
+    log_debug(LOG_VERB, "nc_add_a_server: add %s %s %s %s %s\n", sp_name, inst, app, segs, status);
 
-    item.data= inst;
-    item.len = (size_t) nc_strlen(inst);
+    item.data= (uint8_t *) inst;
+    item.len = (uint32_t) nc_strlen(inst);
 
     n = array_n(arr);
 
     for(i=0;i<n;i++){
         struct server_pool *tcf = array_get(arr,i);
         //in this server pool
-        if(!strcmp(sp_name, tcf->name.data)){
+        if(! strcmp(sp_name, (const char*) tcf->name.data)){
+        	log_debug(LOG_VERB,"match sp name: %s, inst: %s, app:%s, segs: %s, status: %s\n", sp_name,inst,app,segs,status);
             m = array_n(&tcf->server);
             /*for(j=0;j<m;j++){
                 struct server *tss = array_get(&tcf->server,j);
                 printf("%d name : %s\n",j,tss->name.data);
             } */
-            log_debug(LOG_VERB,"sp name: %s, inst: %s, app:%s, seqs: %s, status: %s\n", sp_name,inst,app,seqs,status);
+
 
             /* step1: precheck  */
-            rt = nc_add_new_server_precheck(tcf,inst,app,seqs,status,result);
+            rt = nc_add_new_server_precheck(tcf,inst,app,segs,status,result);
 
             if( rt != NC_OK){
-                log_error("new add server precheck failed: %s\n",sp_name);
+                log_error("new add server to %s precheck failed: reason: %s\n",sp_name, result);
                 return NC_ERROR;
+            } else {
+            	 log_error("nc_add_new_server_precheck ok\n");
             }
+
+
+
+            /* step3: do update modhash */
+			rt = modhash_update (tcf);
+			if (rt != NC_OK ) {
+				 log_error("fetal error:modhash_update failed\n");
+				 return NC_ERROR;
+			}
 
             return NC_OK;
 
+        } else {
+        	  log_debug(LOG_VERB,"match sp name: '%s' != '%s' \n", sp_name, tcf->name.data);
         }
     }
 
@@ -1148,39 +1165,68 @@ int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, 
 }
 
 /* precheck for adding a server to a server_pool */
-int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * seqs, char* status, char* result){
+int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * segs, char* status, char* result){
     struct string sp_app;
     struct array *arr     = &sp->server;
-    struct array new_servers;
-    struct array *new_svrs, *old_svrs;
+//    struct array new_servers;
+ //   struct array *new_svrs, *old_svrs;
     struct server *svr, *new_svr;
 
     uint32_t n_old_svrs = array_n(arr);
-    uint32_t n_new_svrs = n_old_svrs + 1;
-    int port,seg_start,seg_end,istatus, i;
+//    uint32_t n_new_svrs = n_old_svrs + 1;
+
+    int port,seg_start,seg_end,istatus;
     size_t ip_len,port_len,seg_start_len;
     struct sockinfo *ski;
     rstatus_t ret;
+    uint8_t *pc;
 
     struct string addr;
 
+    if (n_old_svrs <= 0) {
+    	return NC_ERROR;
+    }
+    // init the new added svr info
+	if (arr->nelem == arr->nalloc) {
+		printf ("server nelem is up to %d cannot be alloc new item, please restart process!", arr->nelem);
+		return NC_ERROR;
+	}
+
+
     //get the first server info
     svr = array_get(arr,0);
+
     sp_app = svr->app;
 
     // app is different
-    if(strcmp(app,sp_app.data)){
-        snprintf(result,1000,"new add app '%s' is different from app in server pool '%s' \n",app,sp_app.data);
+    if(strcmp(app, (const char*)sp_app.data)){
+        snprintf(result,STATS_RESULT_BUFLEN, "new add app '%s' is different from app in server pool '%s' \n", app, sp_app.data);
+        return NC_ERROR;
+    }
+
+
+    // MODHASH NEQ modhash
+    if((sp->dist_type != DIST_MODHASH )){
+        snprintf(result,STATS_RESULT_BUFLEN, "server pool:%s dist_type is not modhash \n", sp->name.data);
         return NC_ERROR;
     }
 
 
     ip_len=0;
 
-    while(ip_len < nc_strlen(inst) && inst[ip_len] != ':') ip_len ++;
+    pc = nc_strchr(inst, inst + nc_strlen(inst),  ':') ;
 
-    port_len =0;
-    while(ip_len+port_len+1 <strlen(inst) && inst[ip_len+port_len+1]!=':') port_len++;
+    if (! pc ) {
+     	return NC_ERROR;
+     }
+
+    ip_len =  (size_t) (pc - (uint8_t *)inst);
+//    while(ip_len < nc_strlen(inst) && inst[ip_len] != ':') ip_len ++;
+
+
+    port_len = nc_strlen(pc +1);
+
+//    while(ip_len+port_len+1 <strlen(inst) && inst[ip_len+port_len+1]!=':') port_len++;
 
     if(ip_len == 0 || port_len == 0){
         snprintf(result,1000," %s not a valid instance (IP:PORT[:WEIGHT])\n",inst);
@@ -1190,19 +1236,27 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     port = nc_atoi(inst+ip_len+1,port_len);
     
     seg_start_len=0;
-    while(seg_start_len < strlen(seqs) && seqs[seg_start_len] != '-') seg_start_len++;
+    pc = nc_strchr(segs, segs + nc_strlen(segs), '-');
 
-    if(seg_start_len == strlen(seqs)){
-        seg_start = seg_end = nc_atoi(seqs ,seg_start_len);
+    if (! pc ) {
+        snprintf(result,1000," config error: %s %s %s %s\n",inst,app,segs,status);
+     	return NC_ERROR;
+    }
+
+    seg_start_len = (size_t) (pc - (uint8_t *) segs);
+    //while(seg_start_len < strlen(segs) && segs[seg_start_len] != '-') seg_start_len++;
+
+    if(seg_start_len == strlen(segs)){
+        seg_start = seg_end = nc_atoi(segs ,seg_start_len);
     }else{
-        seg_start = nc_atoi(seqs ,seg_start_len);
-        seg_end   = nc_atoi(seqs+seg_start_len+1,strlen(seqs)-seg_start_len-1);
+        seg_start = nc_atoi(segs ,seg_start_len);
+        seg_end   = nc_atoi(segs+seg_start_len+1,strlen(segs)-seg_start_len-1);
     }
 
     istatus = nc_atoi(status,1);
 
-    if(port <0 || seg_start<0 || seg_end<0 || istatus<0){
-        snprintf(result,1000," config error: %s %s %s %s\n",inst,app,seqs,status);
+    if(port <=0 || seg_start<0 || seg_end<=0 || istatus<0){
+        snprintf(result,1000," config error: %s %s %s %s\n",inst,app,segs,status);
         return NC_ERROR;
     }
 
@@ -1213,9 +1267,12 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
 
 
     /* precheck ok,start to add new server */
-    //snprintf(result,1000,"check ok. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . seqstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
+    //snprintf(result,1000,"check ok. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . segstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
+
 
     // init new servers
+    /* new server alloc
+
     array_null(&new_servers);
     new_svrs = &new_servers;
 
@@ -1230,27 +1287,27 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
         new_svr = array_push(new_svrs);
         nc_memcpy( new_svr, svr, new_svrs->size);
     }
-    // init the new added svr info
-    new_svr = array_push(new_svrs);
+    */
+
+    new_svr = array_push(arr);
 
     ASSERT(new_svr);
     
-    new_svr->idx = array_idx(new_svrs, new_svr);
+    new_svr->idx = array_idx(arr, new_svr);
     new_svr->owner = sp;
-
     string_init(&new_svr->pname);
-    ret = string_copy(&new_svr->pname, inst, strlen(inst));
+    ret = string_copy(&new_svr->pname, (uint8_t *)inst, (uint32_t) strlen(inst));
     if(ret != NC_OK){
         return NC_ERROR;
     }
 
     string_init(&new_svr->name);
-    ret = string_copy(&new_svr->name , inst, strlen(inst));
+    ret = string_copy(&new_svr->name ,(uint8_t *) inst, (uint32_t) strlen(inst));
     if(ret != NC_OK){
         return NC_ERROR;
     }
 
-    new_svr->port  = port;
+    new_svr->port  = (uint16_t) port;
     new_svr->weight= 1;
 
     /* sockinfo */
@@ -1260,7 +1317,7 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     }
 
     string_init(&addr);
-    ret = string_copy(&addr, inst, ip_len);
+    ret = string_copy(&addr, (uint8_t *) inst, (uint32_t) ip_len);
     if(ret != NC_OK){
         return ret;
     }
@@ -1276,10 +1333,11 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
 
     /* app */
     string_init(&new_svr->app);
-    string_copy(&new_svr->app,app,strlen(app));
+    string_copy(&new_svr->app,(uint8_t *) app,(uint32_t) strlen(app));
     new_svr->seg_start = seg_start;
     new_svr->seg_end   = seg_end;
     new_svr->status    = istatus;
+
 
     new_svr->ns_conn_q = 0;
     TAILQ_INIT(&new_svr->s_conn_q);
@@ -1291,10 +1349,10 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
         return ret;
     }
 
-    old_svrs = &sp->server;
+    //old_svrs = &sp->server;
 
     // if the old sp is modified, deinit the server ,or set the is_modified flag to 1
-    if(sp->is_modified){
+    /* if(sp->is_modified){
 
         old_svrs->nelem = new_svrs->nelem;
         old_svrs->size  = new_svrs->size;
@@ -1311,14 +1369,15 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
 
         sp->is_modified = 1;
         log_debug(LOG_DEBUG, "set is_modified flag to 1");
-    }
+    } */
 
-    array_each(&sp->server,server_set_new_owner,NULL);
+    // array_each(&sp->server,server_set_new_owner,NULL);
 
-    //snprintf(result,1000,"add server OK. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . seqstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
+    //snprintf(result,1000,"add server OK. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . segstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
     return NC_OK;
 }
 
+//no use?
 static rstatus_t 
 server_set_new_owner(void * elem, void *data){
     struct server *server;
@@ -1341,30 +1400,32 @@ server_set_new_owner(void * elem, void *data){
 rstatus_t server_check_hash_keys( struct server_pool *sp){
     struct server *server;
     bool keys_flag[MODHASH_TOTAL_KEY];
-    uint32_t n_server, i, j, hash_count;
-
+    uint32_t n_server, i, hash_count;
+    int j;
     memset(keys_flag, 0, sizeof(keys_flag));
-
     n_server = array_n(&sp->server);
     hash_count = 0;
 
     for(i = 0; i< n_server; i++){
         server = array_get(&sp->server, i);
-        if(server->status < 1)
+        if(server->status != 1)
             continue;
 
         for(j = server->seg_start; j<= server->seg_end; j++){
-            if(keys_flag[j] == 0 && j< MODHASH_TOTAL_KEY ){
-                keys_flag[j] = 1;
+            if(keys_flag[j] == false && j< MODHASH_TOTAL_KEY ){
+                keys_flag[j] = true;
                 hash_count ++;
+                //printf ("error: hash key  has more than one status is 1!\n");
+                //will occur a bus error if a printf
             }else{
                 // more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
-                log_error("error: hash key '%d' has more than one status is 1!\n",j);
+                //log_error("error: hash key '%d' has more than one status is 1!\n",j);
                 return NC_ERROR;
             }
         }
 
     }
+
 
     // not enogh slot status is 1!
     if(hash_count != MODHASH_TOTAL_KEY){
@@ -1372,7 +1433,7 @@ rstatus_t server_check_hash_keys( struct server_pool *sp){
 
         //print 10 error key
         for(i=0, j=0; i< MODHASH_TOTAL_KEY; i++){
-            if(keys_flag[i] == 0){
+            if(keys_flag[i] == false){
                 log_error("error: key '%d' has no valid backend.\n",i);
                 j++;
             }
@@ -1387,7 +1448,8 @@ rstatus_t server_check_hash_keys( struct server_pool *sp){
 
 
 int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * result){
-    uint32_t key, n_sp, i;
+    int key;
+	uint32_t n_sp, i;
     struct continuum *c;
     uint32_t svr_idx;
     struct server *svr;
@@ -1400,7 +1462,7 @@ int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * re
         struct server_pool *sp = array_get(arr, i);
 
         //find the sp_name
-        if(!strcmp(sp_name, sp->name.data)){
+        if(!strcmp(sp_name, (const char *)sp->name.data)){
             key = nc_atoi(key_s, strlen(key_s));
             if( key <0 || key >= MODHASH_TOTAL_KEY)
             {
@@ -1426,7 +1488,7 @@ int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * re
 }
 
 int nc_is_valid_instance(char *inst, char *ip, int * port){
-    int ip_len,port_len;
+    unsigned int ip_len,port_len;
 
     ip_len=0;
 
@@ -1452,19 +1514,22 @@ int nc_is_valid_instance(char *inst, char *ip, int * port){
     return NC_OK;
 }
 
+int nc_rewrite_yaml_conf (void *sp, char *sp_name) {
+
+}
 int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, char *new_instance, char* result){
-    uint32_t n,m,i,j;
+    uint32_t n,m ;
     struct array *arr = sp_a;
     int rt;
     struct string addr;
 
     char old_ip[20],new_ip[20];
-    int  old_port,new_port, oldsvr_index, newsvr_index;
+    int  i,j, old_port,new_port, oldsvr_index, newsvr_index;
     bool is_oldsvr_exist = false;
     bool is_newsvr_exist = false;
-    struct sockinfo *ski ;
-    char            *new_name;
-    char            *new_pname;
+    struct sockinfo *ski = NULL;
+    char            *new_name  = NULL;
+    char            *new_pname = NULL;
 
     log_debug(LOG_VERB, " in nc_server_change_instance");
 
@@ -1473,7 +1538,7 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
     for(i=0;i<n;i++){
         struct server_pool *sp= array_get(arr,i);
         //in this server pool
-        if(!strcmp(sp_name, sp->name.data)){
+        if(!strcmp(sp_name, (const char*) sp->name.data)){
             m = array_n(&sp->server);
 
             log_debug(LOG_VERB,"sp name: %s, old inst: %s, new inst:%s \n", sp_name,old_instance, new_instance);

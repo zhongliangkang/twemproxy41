@@ -67,14 +67,18 @@ struct conf_listen {
 struct conf_server {
     struct string   pname;      /* server: as "name:port:weight" */
     struct string   name;       /* name */
-    struct string   app;       /* name */
+    struct string   app;        /* name */
     int             port;       /* port */
     int             weight;     /* weight */
     struct sockinfo info;       /* connect socket info */
     unsigned        valid:1;    /* valid? */
-    int             status;
-    int             seg_start;
-    int             seg_end;
+
+    int             status;     /* transfer status: 1:ok, 2:transfer, 0:done  */
+    int             seg_start;  /* bucket seg start */
+    int             seg_end;    /* bucket set end, ranger:[seg_start, seg_end] */
+
+
+
 };
 
 struct conf_pool {
@@ -114,6 +118,7 @@ struct conf {
     unsigned      sound:1;          /* sound? */
     unsigned      parsed:1;         /* parsed? */
     unsigned      valid:1;          /* valid? */
+
 };
 
 struct command {
@@ -174,10 +179,11 @@ rstatus_t conf_pool_each_transform(void *elem, void *data);
 struct conf *conf_create(char *filename);
 void conf_destroy(struct conf *cf);
 
+/* tencent add  start */
 int conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
 rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, char *new_name);
-
 rstatus_t conf_check_hash_keys(struct conf_pool *p);
+/* tencent add  end  */
 
 #endif

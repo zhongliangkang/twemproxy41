@@ -188,6 +188,10 @@ rsp_forward_stats(struct context *ctx, struct server *server, struct msg *msg)
     stats_server_incr_by(ctx, server, response_bytes, msg->mlen);
 }
 
+/*
+ * tencent
+ * get a rsp, if a redirect msg, forward to new server
+ * */
 static void
 rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
 {
@@ -202,8 +206,32 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
 
     /* dequeue peer message (request) from server */
     pmsg = TAILQ_FIRST(&s_conn->omsg_q);
+    /*
+     * cycker: this is the request from client?
+	 * 1,get: YES
+	 * 2,mget,del:no
+	 * 	 orgin requiest is  pmsg->mhdr->stqh_first->next->stqe_next->start
+	 * 		*2
+	 *
+    */
+
+
+
     ASSERT(pmsg != NULL && pmsg->peer == NULL);
     ASSERT(pmsg->request && !pmsg->done);
+
+    /*
+     * 	cycker: 转发的操作应该是加在这里
+        if (msg->owner->transfer_status == 1) {
+        	get_sharded_req_msg;
+    		s_conn->enqueue_outq(ctx, conn, msg);
+        	status = event_add_out(ctx->evb, s_conn);
+        	log_debug(LOG_VVERB, "redirect msg from old-server to new-server");
+        	return ;
+        }
+
+    */
+
 
     s_conn->dequeue_outq(ctx, s_conn, pmsg);
     pmsg->done = 1;
@@ -217,14 +245,16 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     c_conn = pmsg->owner;
 
     if(c_conn == NULL){
-        msg_put(pmsg);
+        msg_put(pmsg); //send msg to free queue
         return;
     }
 
     ASSERT(c_conn->client && !c_conn->proxy);
 
+
+
     if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {
-        status = event_add_out(ctx->evb, c_conn);
+        status = event_add_out(ctx->evb, c_conn);  /* c_conn */
         if (status != NC_OK) {
             c_conn->err = errno;
         }

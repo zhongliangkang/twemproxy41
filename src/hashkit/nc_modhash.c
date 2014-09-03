@@ -24,6 +24,14 @@
 
 #define MODULA_POINTS_PER_SERVER    1
 
+
+rstatus_t
+modhash_check_before_update(struct server_pool *pool)
+{
+	return NC_OK;
+}
+
+
 rstatus_t
 modhash_update(struct server_pool *pool)
 {
@@ -37,9 +45,11 @@ modhash_update(struct server_pool *pool)
     uint32_t server_index;        /* server index */
     uint32_t total_weight;        /* total live server weight */
     int64_t now;                  /* current timestamp in usec */
+    bool first_init = false;       /* is first_init ?*/
+    uint32_t pointer_counter_status2 ; /* #pointers on continuum of transfer status */
 
-    bool    keys_flag[MODHASH_TOTAL_KEY];
-    memset(keys_flag, 0, sizeof(keys_flag));
+//    bool    keys_flag[MODHASH_TOTAL_KEY];
+ //   memset(keys_flag, 0, sizeof(keys_flag));
 
     now = nc_usec_now();
     if (now < 0) {
@@ -47,13 +57,13 @@ modhash_update(struct server_pool *pool)
     }
 
     // we just report an error here
-    if(server_check_hash_keys(pool) != NC_OK){
+     if(server_check_hash_keys(pool) != NC_OK){
         log_error("there may be some error in the config file.");
         return NC_ERROR;
     }
 
     nserver = array_n(&pool->server);
-    log_debug(LOG_VERB,"found n servers in modhash_update: %ld . keys_flag: %d\n",nserver, sizeof(keys_flag));
+   // log_debug(LOG_VERB,"found n servers in modhash_update: %ld . keys_flag: %d\n",nserver, sizeof(keys_flag));
 
     nlive_server = 0;
     total_weight = 0;
@@ -118,30 +128,53 @@ modhash_update(struct server_pool *pool)
         pool->continuum = continuum;
         pool->nserver_continuum = nserver_continuum;
         /* pool->ncontinuum is initialized later as it could be <= ncontinuum */
+        first_init = true;
     }
 
     /* update the continuum with the servers that are live */
     continuum_index = 0;
     pointer_counter = 0;
     for (server_index = 0; server_index < nserver; server_index++) {
+    	pointer_per_server = 1;
         struct server *server = array_get(&pool->server, server_index);
         int idx;
 
-        if(server->status < 1){
-            continue;
+        if (server->status != 1 ) {
+        	continue;
         }
 
-        for (idx = server->seg_start; idx <= server->seg_end; idx++) {
-            pointer_per_server = 1;
+		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
+			pool->continuum[idx].index = server_index;
+			pool->continuum[idx].value = 0;
+			pool->continuum[idx].status = 0;
+			pool->continuum[idx].newindex = -1;
 
-            pool->continuum[idx].index = server_index;
-            pool->continuum[idx].value = 0;
-
-            pointer_counter += pointer_per_server;
-        }
+			pointer_counter += pointer_per_server;
+		 }
     }
 
     pool->ncontinuum = pointer_counter;
+
+    pointer_counter_status2 = 0;
+
+    for (server_index = 0; server_index < nserver; server_index++) {
+    	pointer_per_server = 1;
+        struct server *server = array_get(&pool->server, server_index);
+        int idx;
+
+         if (server->status != 2 ) {
+           	continue;
+         }
+
+   		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
+
+   			pool->continuum[idx].status = 2;
+   			pool->continuum[idx].newindex = server_index;
+   			pointer_counter_status2 += pointer_per_server;
+   		 }
+    }
+
+    pool->ntrans_continuum = pointer_counter_status2;
 
     log_debug(LOG_VERB, "updated pool %"PRIu32" '%.*s' with %"PRIu32" of "
               "%"PRIu32" servers live in %"PRIu32" slots and %"PRIu32" "
@@ -153,6 +186,7 @@ modhash_update(struct server_pool *pool)
     return NC_OK;
 }
 
+
 uint32_t
 modhash_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash)
 {
@@ -162,8 +196,8 @@ modhash_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash
     ASSERT(ncontinuum != 0);
 
     c = continuum + hash % ncontinuum;
-
+    ASSERT((c->status > 0 &&  c->newindex >=0 ));
     log_debug(LOG_VERB, "choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
 
-    return c->index;
+    return (c->status == 2 ) ? c->newindex : c->index;
 }

@@ -71,10 +71,10 @@
  * synonymously with write or OUT event. Similarly recv is used synonymously
  * with read or IN event
  *
- *             Client+             Proxy           Server+
+ *             Client+             Proxy           Server+ (nc_response.c)
  *                              (nutcracker)
  *                                   .
- *       msg_recv {read event}       .       msg_recv {read event}
+ *       msg_recv {read event}       .       msg_recv {read event}  msg_get
  *         +                         .                         +
  *         |                         .                         |
  *         \                         .                         /
@@ -183,6 +183,8 @@ msg_tmo_delete(struct msg *msg)
     log_debug(LOG_VERB, "delete msg %"PRIu64" from tmo rbt", msg->id);
 }
 
+
+/* */
 static struct msg *
 _msg_get(void)
 {
@@ -278,7 +280,7 @@ msg_get(struct conn *conn, bool request, bool redis)
         if (request) {
             msg->parser = redis_parse_req;
         } else {
-            msg->parser = redis_parse_rsp;
+            msg->parser = redis_parse_rsp; //this, get the error msg, and redirect
         }
         msg->pre_splitcopy = redis_pre_splitcopy;
         msg->post_splitcopy = redis_post_splitcopy;
@@ -673,6 +675,7 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     ASSERT((mbuf->last + n) <= mbuf->end);
     mbuf->last += n;
     msg->mlen += (uint32_t)n;
+
 
     for (;;) {
         status = msg_parse(ctx, conn, msg);

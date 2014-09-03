@@ -39,6 +39,7 @@ typedef void (*conn_msgq_t)(struct context *, struct conn *, struct msg *);
 struct conn {
     TAILQ_ENTRY(conn)  conn_tqe;      /* link in server_pool / server / free q */
     void               *owner;        /* connection owner - server_pool / server */
+    								  /* s_conn's owner is server_pool */
 
     int                sd;            /* socket descriptor */
     int                family;        /* socket address family */
@@ -85,6 +86,8 @@ struct conn {
     unsigned           done:1;        /* done? aka close? */
     unsigned           redis:1;       /* redis? */
     unsigned           authed:1;      /* is this connection authed? */
+
+    unsigned           transfer_status:1 ; /*0:ok, 1:retry */
 };
 
 TAILQ_HEAD(conn_tqh, conn);

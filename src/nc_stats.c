@@ -744,7 +744,9 @@ stats_send_rsp(struct stats *st)
     rstatus_t status;
     ssize_t n;
     int sd;
-    char result[1024*100];
+
+    char result[STATS_RESULT_BUFLEN] ;
+
     char recv_command[MAX_COMMAND_LENGTH*MAX_COMMAND_FIELD];
     char *cmd_p[MAX_COMMAND_FIELD];
     char *p,*key_point;
@@ -806,8 +808,15 @@ stats_send_rsp(struct stats *st)
     if(!strcmp(cmd_p[0],"stats")){
         log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
         n = nc_sendn(sd, st->buf.data, st->buf.len);
-        
-    }else if(!strcmp(cmd_p[0],"get") && n_field == 3){   /* get config */
+
+    }
+    /*
+     * get spname servers
+     * 	return the server list
+     * get spname listen
+     * 	return the value of listen
+     * */
+    else if(!strcmp(cmd_p[0],"get") && n_field == 3){   /* get config */
 
         int rt;
         if(!strcmp(cmd_p[2],"servers")){
@@ -819,11 +828,31 @@ stats_send_rsp(struct stats *st)
             log_error("err ret:%d . msg: %s\n",rt, result);
         }
         n = nc_sendn(sd, result, strlen(result));
-    }else if(!strcmp(cmd_p[0],"add") && n_field == 6){         /* add server */
-        //int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
-        snprintf(result,100,"add! \n");
-        n = nc_sendn(sd, result, strlen(result));
-    }else if(!strcmp(cmd_p[0],"change") && n_field == 4){    /* change status */
+
+
+    }
+    /*
+     * add spname ip:port app segS-segE status
+     *
+    */
+
+    else if(!strcmp(cmd_p[0],"add") && n_field == 6){
+
+        int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
+        if (NC_OK == rt) {
+        	snprintf(result,100,"OK add success\n");
+        } else {
+        	snprintf(result,100,"ERR add failed\n");
+        }
+
+    	n = nc_sendn(sd, result, strlen(result));
+
+    }
+    /*
+     * change spname ipport new_ipport
+    */
+
+    else if(!strcmp(cmd_p[0],"change") && n_field == 4){    /* change status */
         int rt;
         rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
 
@@ -835,6 +864,7 @@ stats_send_rsp(struct stats *st)
 
     }else if(!strcmp(cmd_p[0],"delete")){    /* delete server */
         printf("delete!\n");
+
     }else if(!strcmp(cmd_p[0],"getkey") && n_field == 3){  /* get hashkey  backend's info */
         int rt;
         rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);

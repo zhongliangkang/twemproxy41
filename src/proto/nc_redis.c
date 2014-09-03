@@ -2125,6 +2125,8 @@ redis_pre_coalesce(struct msg *r)
                     "with unknown type %d", r->type);
         pr->error = 1;
         pr->err = EINVAL;
+
+
         break;
     }
 }
