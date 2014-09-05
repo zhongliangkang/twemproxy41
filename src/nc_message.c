@@ -78,7 +78,7 @@
  *         +                         .                         +
  *         |                         .                         |
  *         \                         .                         /
- *         req_recv_next             .             rsp_recv_next
+ *                       .             rsp_recv_next
  *           +                       .                       +
  *           |                       .                       |       Rsp
  *           req_recv_done           .           rsp_recv_done      <===
@@ -259,6 +259,9 @@ done:
     msg->swallow = 0;
     msg->redis = 0;
 
+    msg->redirect = 0;
+    msg->transfer_status = 0;
+
     return msg;
 }
 
@@ -280,7 +283,7 @@ msg_get(struct conn *conn, bool request, bool redis)
         if (request) {
             msg->parser = redis_parse_req;
         } else {
-            msg->parser = redis_parse_rsp; //this, get the error msg, and redirect
+            msg->parser = redis_parse_rsp;
         }
         msg->pre_splitcopy = redis_pre_splitcopy;
         msg->post_splitcopy = redis_post_splitcopy;
@@ -437,7 +440,7 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
      * Parse nbuf as a new message nmsg in the next iteration.
      */
     if(!conn->authed){
-        size_t rn = nc_snprintf(auth_ret,msg->pos - mbuf->pos,"%s",mbuf->pos);
+        nc_snprintf(auth_ret, msg->pos - mbuf->pos, "%s", mbuf->pos);
         loga("auth to server: %s ret: %s.",((struct server *)msg->owner->owner)->name.data, auth_ret);
         if(strcmp(auth_ret,"+OK")){
             conn->authed = 1;
@@ -580,6 +583,9 @@ static rstatus_t
 msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
 {
     rstatus_t status;
+    struct msg* pmsg;
+    struct conn *c_conn;
+    struct mbuf *buf;
 
     if (msg_empty(msg)) {
         /* no data to parse */
@@ -588,6 +594,36 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
     }
 
     msg->parser(msg);
+
+    //redirect msg which from server->rsp && request msg status == 2
+
+    if (! conn->client && ! conn->proxy  && ! msg->request ) {
+          pmsg = TAILQ_FIRST(&conn->omsg_q);
+          if (pmsg->transfer_status == SERVER_STATUS_TRANSING  && ! pmsg->redirect ) {
+			  ASSERT(pmsg != NULL && pmsg->peer == NULL);
+			  ASSERT(pmsg->request && !pmsg->done);
+			  conn->dequeue_outq(ctx, conn, pmsg);
+			  conn->unref(conn);
+			  conn_put(conn);
+			  msg_put(msg);
+			  /* now pmsg is the request of client, we send it to new server*/
+			  pmsg->redirect = 1;
+			  pmsg->done = 0;
+			  pmsg->peer = NULL;
+			  pmsg->error = 0;
+
+
+			  buf = STAILQ_FIRST(&pmsg->mhdr);
+			  buf->pos = buf->start;
+			  pmsg->pos = buf->pos;
+
+			  c_conn = pmsg->owner;
+
+			  log_debug(LOG_VVERB, "redirect msg from old-server to new-server\n");
+			  req_redirect(ctx, c_conn, pmsg);
+			  return  NC_OK;
+          }
+    }
 
     switch (msg->result) {
     case MSG_PARSE_OK:
@@ -643,6 +679,7 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     ssize_t n;
     int flag = 0;
 
+    /* flag is no used, wait sky to confirm */
     if(msg->result == MSG_PARSE_AUTH && conn->client == 0){
         flag = 1;
     }

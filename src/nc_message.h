@@ -222,6 +222,8 @@ struct msg {
     unsigned             last_fragment:1; /* last fragment? */
     unsigned             swallow:1;       /* swallow response? */
     unsigned             redis:1;         /* redis? */
+    unsigned             transfer_status:2; /* the key is in trans?*/
+    unsigned             redirect:1;      /* redirect? */
 
 
 };

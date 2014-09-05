@@ -25,12 +25,6 @@
 #define MODULA_POINTS_PER_SERVER    1
 
 
-rstatus_t
-modhash_check_before_update(struct server_pool *pool)
-{
-	return NC_OK;
-}
-
 
 rstatus_t
 modhash_update(struct server_pool *pool)
@@ -47,6 +41,7 @@ modhash_update(struct server_pool *pool)
     int64_t now;                  /* current timestamp in usec */
     bool first_init = false;       /* is first_init ?*/
     uint32_t pointer_counter_status2 ; /* #pointers on continuum of transfer status */
+    uint32_t pool_transfer_status = 0;
 
 //    bool    keys_flag[MODHASH_TOTAL_KEY];
  //   memset(keys_flag, 0, sizeof(keys_flag));
@@ -146,17 +141,21 @@ modhash_update(struct server_pool *pool)
 		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
 			pool->continuum[idx].index = server_index;
 			pool->continuum[idx].value = 0;
-			pool->continuum[idx].status = 0;
-			pool->continuum[idx].newindex = -1;
+			pool->continuum[idx].status = CONTINUUM_STATUS_NOTRANS;
+			pool->continuum[idx].newindex = 0; //new index
 
 			pointer_counter += pointer_per_server;
 		 }
+
+		 pool_transfer_status = 1;
     }
 
     pool->ncontinuum = pointer_counter;
 
+    /*
+     * update the continuum with the servers which status is 2
+     */
     pointer_counter_status2 = 0;
-
     for (server_index = 0; server_index < nserver; server_index++) {
     	pointer_per_server = 1;
         struct server *server = array_get(&pool->server, server_index);
@@ -167,14 +166,15 @@ modhash_update(struct server_pool *pool)
          }
 
    		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
-
-   			pool->continuum[idx].status = 2;
+   			pool->continuum[idx].status = CONTINUUM_STATUS_TRANSING;
    			pool->continuum[idx].newindex = server_index;
    			pointer_counter_status2 += pointer_per_server;
    		 }
+   		pool_transfer_status = 2;
     }
 
     pool->ntrans_continuum = pointer_counter_status2;
+    pool->status = pool_transfer_status;
 
     log_debug(LOG_VERB, "updated pool %"PRIu32" '%.*s' with %"PRIu32" of "
               "%"PRIu32" servers live in %"PRIu32" slots and %"PRIu32" "
@@ -196,8 +196,38 @@ modhash_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash
     ASSERT(ncontinuum != 0);
 
     c = continuum + hash % ncontinuum;
-    ASSERT((c->status > 0 &&  c->newindex >=0 ));
+    ASSERT( c->status > 0  );
     log_debug(LOG_VERB, "choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
 
-    return (c->status == 2 ) ? c->newindex : c->index;
+    return (c->status == CONTINUUM_STATUS_TRANSED ) ? c->newindex : c->index;
 }
+
+uint32_t
+modhash_dispatch_newserver(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash)
+{
+    struct continuum *c;
+
+    ASSERT(continuum != NULL);
+    ASSERT(ncontinuum != 0);
+
+    c = continuum + hash % ncontinuum;
+    ASSERT( c->status > 0  );
+    log_debug(LOG_VERB, "NEW choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
+
+    return c->newindex;
+}
+
+uint32_t
+modhash_transfer_status (struct continuum *continuum, uint32_t ncontinuum, uint32_t hash)
+{
+    struct continuum *c;
+
+    ASSERT(continuum != NULL);
+    ASSERT(ncontinuum != 0);
+
+    c = continuum + hash % ncontinuum;
+    ASSERT(c->status > 0);
+    log_debug(LOG_VERB, "choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
+    return (c->status );
+}
+

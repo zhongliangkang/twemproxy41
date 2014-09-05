@@ -718,7 +718,7 @@ server_pool_hash(struct server_pool *pool, uint8_t *key, uint32_t keylen)
  * get  the server of the key
  */
 struct server *
-server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
+server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, bool redirect)
 {
     struct server *server;
     uint32_t hash, idx;
@@ -743,7 +743,12 @@ server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
 
     case DIST_MODHASH:
         hash = server_pool_hash(pool, key, keylen);
-        idx = modhash_dispatch(pool->continuum, pool->ncontinuum, hash);
+
+        if (redirect) {
+        	idx = modhash_dispatch_newserver(pool->continuum, pool->ncontinuum, hash);
+        } else {
+        	idx = modhash_dispatch(pool->continuum, pool->ncontinuum, hash);
+        }
         break;
 
     default:
@@ -762,11 +767,12 @@ server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen)
 
 struct conn *
 server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
-                 uint32_t keylen)
+                 uint32_t keylen, struct msg* msg)
 {
     rstatus_t status;
     struct server *server;
     struct conn *conn;
+    uint32_t transfer_status = 1;
 
     status = server_pool_update(pool);
     if (status != NC_OK) {
@@ -774,10 +780,23 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
     }
 
     /* from a given {key, keylen} pick a server from pool */
-    server = server_pool_server(pool, key, keylen);
+    server = server_pool_server(pool, key, keylen, msg->redirect);
     if (server == NULL) {
         return NULL;
     }
+
+
+    if (server->owner->status == SERVER_STATUS_TRANSING &&
+    	  server->owner->dist_type == DIST_MODHASH &&
+    	  0 == msg->redirect
+    	  ) {
+    	uint32_t hash = server_pool_hash(pool, key, keylen);
+    	msg->transfer_status = modhash_transfer_status(pool->continuum, pool->ncontinuum, hash);
+
+    	log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status is %d", keylen,
+    	              key, pool->dist_type, transfer_status);
+    }
+
 
     /* reload server config here */
     if (server->reload_svr){
@@ -828,11 +847,13 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
         return NULL;
     }
 
+    /* try to connect if not*/
     status = server_connect(ctx, server, conn);
     if (status != NC_OK) {
         server_close(ctx, conn);
         return NULL;
     }
+
 
     return conn;
 }
@@ -1338,16 +1359,13 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     new_svr->seg_end   = seg_end;
     new_svr->status    = istatus;
 
-
     new_svr->ns_conn_q = 0;
     TAILQ_INIT(&new_svr->s_conn_q);
 
     new_svr->next_retry = 0LL;
     new_svr->failure_count = 0;
 
-    if (ret != NC_OK) {
-        return ret;
-    }
+
 
     //old_svrs = &sp->server;
 
@@ -1423,7 +1441,6 @@ rstatus_t server_check_hash_keys( struct server_pool *sp){
                 return NC_ERROR;
             }
         }
-
     }
 
 
@@ -1449,10 +1466,10 @@ rstatus_t server_check_hash_keys( struct server_pool *sp){
 
 int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * result){
     int key;
-	uint32_t n_sp, i;
+	uint32_t n_sp, i, n;
     struct continuum *c;
     uint32_t svr_idx;
-    struct server *svr;
+    struct server *svr, *newsvr;
     struct array *arr = sp_p;
 
     ASSERT(sp_p);
@@ -1473,11 +1490,15 @@ int server_pool_getkey_by_keyid(void *sp_p,char *sp_name, char *key_s, char * re
 
             //get the server index
             svr_idx = c->index;
-
             //get the server
             svr = array_get(&sp->server, svr_idx);
 
-            snprintf(result,1024,"%s\n",svr->pname.data);
+            n = snprintf(result,1024,"%s\n",svr->pname.data);
+            if (c->status == SERVER_STATUS_TRANSING ) {
+            	 newsvr = array_get(&sp->server, c->newindex);
+            	 n = snprintf(result + n,1024 -n ,"  NEW: %s\n",newsvr->pname.data);
+            }
+
             return NC_OK;
         }
     }

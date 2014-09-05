@@ -299,7 +299,7 @@ core_core(void *arg, uint32_t events)
 {
     rstatus_t status;
     struct conn *conn = arg;
-    struct context *ctx = conn_to_ctx(conn); /* why a data->ptr  */
+    struct context *ctx = conn_to_ctx(conn);
 
     log_debug(LOG_VVERB, "event %04"PRIX32" on %c %d", events,
               conn->client ? 'c' : (conn->proxy ? 'p' : 's'), conn->sd);

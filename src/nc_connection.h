@@ -87,7 +87,7 @@ struct conn {
     unsigned           redis:1;       /* redis? */
     unsigned           authed:1;      /* is this connection authed? */
 
-    unsigned           transfer_status:1 ; /*0:ok, 1:retry */
+ //   unsigned           transfer_status:2 ; /*0,1:ok, 1:retry, 2:ok */
 };
 
 TAILQ_HEAD(conn_tqh, conn);

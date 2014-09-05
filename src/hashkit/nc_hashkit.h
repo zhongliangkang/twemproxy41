@@ -78,5 +78,7 @@ uint32_t random_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint3
 
 rstatus_t modhash_update(struct server_pool *pool);
 uint32_t modhash_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash);
+uint32_t modhash_dispatch_newserver(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash);
+uint32_t modhash_transfer_status(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash);
 
 #endif

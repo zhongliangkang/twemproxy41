@@ -63,6 +63,14 @@ typedef uint32_t (*hash_t)(const char *, size_t);
 
 #define MODHASH_TOTAL_KEY  420000      /* total hash keys: 42w */
 
+#define SERVER_STATUS_NOTRANS  1   /* return old */
+#define SERVER_STATUS_TRANSING 2   /* return old, try to redirect to new */
+#define SERVER_STATUS_TRANSED  3   /* return new */
+
+#define CONTINUUM_STATUS_NOTRANS  1   /* return old */
+#define CONTINUUM_STATUS_TRANSING 2   /* return old, try to redirect to new */
+#define CONTINUUM_STATUS_TRANSED  3   /* return new */
+
 struct continuum {
     uint32_t index;  /* server index */
     uint32_t value;  /* hash value */
@@ -70,6 +78,8 @@ struct continuum {
     unsigned  status:2; /* transfer_status: 0:old; 1,old,new; 2:new*/
 
 };
+
+
 
 struct modify_info{
     struct sockinfo *ski;
@@ -148,6 +158,7 @@ struct server_pool {
 
     unsigned           b_pass:1;             /* if access twemproxy need password? */
     unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
+    unsigned           status:2;             /* 0:nouse, 1:notrans ,2:transing, 3:trans done */
 };
 
 void server_ref(struct conn *conn, void *owner);
@@ -162,13 +173,13 @@ void server_close(struct context *ctx, struct conn *conn);
 void server_connected(struct context *ctx, struct conn *conn);
 void server_ok(struct context *ctx, struct conn *conn);
 
-struct conn *server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key, uint32_t keylen);
+struct conn *server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key, uint32_t keylen, struct msg *msg);
 rstatus_t server_pool_run(struct server_pool *pool);
 rstatus_t server_pool_preconnect(struct context *ctx);
 void server_pool_disconnect(struct context *ctx);
 rstatus_t server_pool_init(struct array *server_pool, struct array *conf_pool, struct context *ctx);
 void server_pool_deinit(struct array *server_pool);
-struct server * server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen);
+struct server * server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, bool redirect);
 
 
 
@@ -191,6 +202,8 @@ int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * res
 /* send the auth package to redis server */
 rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn);
 
+/* a wrapper of req_forward */
+void req_redirect (struct context *ctx, struct conn *c_conn, struct msg *msg);
 
 /* 
  * parameters:

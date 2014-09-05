@@ -425,10 +425,10 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         ASSERT(mbuf->end - mbuf->last > 0);
         msize = mbuf_size(mbuf);
 
-        key_len = msg->key_end - msg->key_start;
+        key_len = (uint32_t) (msg->key_end - msg->key_start);
         key     = msg->key_start;
 
-        server = server_pool_server(sp, key, key_len);
+        server = server_pool_server(sp, key, key_len, false);
 
         n = nc_snprintf(mbuf->last,100,"$%d"CRLF"%s"CRLF, server->name.len,server->name.data);
         ASSERT(mbuf->last + n <= mbuf->end);
@@ -613,6 +613,8 @@ req_forward_stats(struct context *ctx, struct server *server, struct msg *msg)
     stats_server_incr_by(ctx, server, request_bytes, msg->mlen);
 }
 
+
+
 static void
 req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
 {
@@ -625,7 +627,8 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     ASSERT(c_conn->client && !c_conn->proxy);
 
     /* enqueue message (request) into client outq, if response is expected */
-    if (!msg->noreply) {
+    /* if msg is a redirect msg, it was in the outq, and not need add one more time */
+    if (!msg->noreply && ! msg->redirect) {
         c_conn->enqueue_outq(ctx, c_conn, msg);
     }
 
@@ -657,7 +660,8 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
         keylen = (uint32_t)(msg->key_end - msg->key_start);
     }
 
-    s_conn = server_pool_conn(ctx, c_conn->owner, key, keylen);
+
+    s_conn = server_pool_conn(ctx, c_conn->owner, key, keylen, msg);
 
     /*
     if( pool->b_redis_pass && s_conn->authed == 0){
@@ -689,6 +693,13 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     log_debug(LOG_VERB, "forward from c %d to s %d req %"PRIu64" len %"PRIu32
               " type %d with key '%.*s'", c_conn->sd, s_conn->sd, msg->id,
               msg->mlen, msg->type, keylen, key);
+}
+
+void
+req_redirect (struct context *ctx, struct conn *c_conn, struct msg *msg)
+{
+
+	 req_forward(ctx, c_conn, msg);
 }
 
 void
@@ -766,6 +777,7 @@ req_send_done(struct context *ctx, struct conn *conn, struct msg *msg)
               "s %d", msg->id, msg->mlen, msg->type, conn->sd);
 
     /* dequeue the message (request) from server inq */
+
     conn->dequeue_inq(ctx, conn, msg);
 
     /*
