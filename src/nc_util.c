@@ -625,7 +625,7 @@ nc_unresolve_desc(int sd)
 
 void nc_ltrim(char *s){
     int  n,i=0,j;
-    n=strlen(s);
+    n= (int) strlen(s);
 
     while( s[i] == ' ' || s[i] == '\t') { i++; };
     for(j=i;j<n;j++){
@@ -635,8 +635,8 @@ void nc_ltrim(char *s){
 }
 
 void nc_rtrim(char *s){
-    size_t i;
-    i = strlen(s) - 1;
+    int i;
+    i = (int) strlen(s) - 1;
     while((s[i] ==' ' || s[i] == '\t') && i>=0 ) { i--; }
     s[i+1] = '\0';
 }
@@ -645,3 +645,5 @@ void nc_trim(char *s){
     nc_ltrim(s);
     nc_rtrim(s);
 }
+
+

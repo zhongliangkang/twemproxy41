@@ -241,7 +241,7 @@ mbuf_split(struct mhdr *h, uint8_t *pos, mbuf_copy_t cb, void *cbarg)
     }
 
     if (cb != NULL) {
-        /* precopy nbuf */
+        /* precopy nbuf narg\r\n$3\r\ndel\r\n... */
         cb(nbuf, cbarg);
     }
 

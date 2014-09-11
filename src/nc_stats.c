@@ -197,10 +197,11 @@ stats_server_map(struct array *stats_server, struct array *server)
     nserver = array_n(server);
     ASSERT(nserver != 0);
 
-    status = array_init(stats_server, nserver, sizeof(struct stats_server));
+    status = array_init(stats_server, NC_MAX_NSERVER, sizeof(struct stats_server));
     if (status != NC_OK) {
         return status;
     }
+    log_debug(LOG_VVVERB, "pre alloc %d stats servers, size:%d bytes", NC_MAX_NSERVER, NC_MAX_NSERVER * sizeof(struct stats_server));
 
     for (i = 0; i < nserver; i++) {
         struct server *s = array_get(server, i);
@@ -213,6 +214,67 @@ stats_server_map(struct array *stats_server, struct array *server)
     }
 
     log_debug(LOG_VVVERB, "map %"PRIu32" stats servers", nserver);
+
+    return NC_OK;
+}
+
+rstatus_t
+stats_pool_add_server (struct server_pool *pool, uint32_t newsvr_idx)
+{
+    rstatus_t status;
+    struct stats_pool *stp ;
+
+    stp = array_get(&pool->ctx->stats->current, pool->idx);
+    status = stats_server_add_one (&stp->server, &pool->server, newsvr_idx);
+    if (NC_OK != status) {
+
+    	return status;
+    }
+
+
+    stp = array_get(&pool->ctx->stats->shadow, pool->idx);
+    status =  stats_server_add_one (&stp->server, &pool->server, newsvr_idx);
+    if (NC_OK != status) {
+    	//FIXME: deinit current
+    	return status;
+    }
+
+    stp = array_get(&pool->ctx->stats->sum, pool->idx);
+    status =  stats_server_add_one (&stp->server, &pool->server, newsvr_idx);
+    if (NC_OK != status) {
+    	//FIXME: deinit current\shadow
+    	return status;
+    }
+    return NC_OK;
+}
+/*
+ * add a new server in alloced array. idx must < NC_MAX_SERVER to avoid realloc
+ *  status = stats_pool_map(&st->current, server_pool);
+ * */
+rstatus_t
+stats_server_add_one(struct array *stats_server, struct array *server, uint32_t newsvr_idx)
+{
+    rstatus_t status;
+    ASSERT(stats_server != NULL);
+    ASSERT(server != NULL);
+
+	struct server *s = array_get(server, newsvr_idx);
+	if (s->idx != newsvr_idx) {
+		return NC_ERROR;
+	}
+
+	if (newsvr_idx >=  stats_server->nalloc ) {
+		return NC_ERROR;
+	}
+
+	struct stats_server *sts = array_push(stats_server);
+
+	status = stats_server_init(sts, s);
+	if (status != NC_OK) {
+		return status;
+	}
+
+//   log_debug(LOG_VVVERB, "%s add map %"PRIu32" stats servers", newsvr_idx);
 
     return NC_OK;
 }

@@ -206,13 +206,16 @@ server_init(struct array *server, struct array *conf_server,
     uint32_t nserver;
 
     nserver = array_n(conf_server);
-    ASSERT(nserver != 0);
+    ASSERT(nserver != 0 && nserver < NC_MAX_NSERVER);
     ASSERT(array_n(server) == 0);
 
-    status = array_init(server, nserver + 1024, sizeof(struct server));
+
+    status = array_init(server, NC_MAX_NSERVER, sizeof(struct server));
     if (status != NC_OK) {
         return status;
     }
+
+    log_debug(LOG_VVVERB, "pre alloc %d server, size:%d bytes", NC_MAX_NSERVER, NC_MAX_NSERVER * sizeof(struct server));
 
     /* transform conf server to server */
     status = array_each(conf_server, conf_server_each_transform, server);
@@ -604,7 +607,7 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
 
 
 con_ok:
-    log_debug(LOG_VERB, "connect to server %s\n\n\n",server->pname.data);
+    //log_debug(LOG_VERB, "connect to server %s\n\n\n",server->pname.data);
 
     con_ret = server_send_redis_auth(ctx, conn);
 
@@ -785,7 +788,7 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
         return NULL;
     }
 
-
+    /* REDIRECT: CLIENT->PROXY-(*)->OLDSERERR->PROXY->NEWSERVER->PROXY */
     if (server->owner->status == SERVER_STATUS_TRANSING &&
     	  server->owner->dist_type == DIST_MODHASH &&
     	  0 == msg->redirect
@@ -793,8 +796,20 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
     	uint32_t hash = server_pool_hash(pool, key, keylen);
     	msg->transfer_status = modhash_transfer_status(pool->continuum, pool->ncontinuum, hash);
 
+
     	log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status is %d", keylen,
     	              key, pool->dist_type, transfer_status);
+    }
+
+     /*REDIRECT: CLIENT->PROXY->OLDSERERR->PROXY-(4)->NEWSERVER->PROXY
+      * try to update continuum's status
+      * */
+
+    if ( 1 == msg->redirect  && 1 == msg->redirect_type ) {
+    	uint32_t hash = server_pool_hash(pool, key, keylen);
+    	modhash_bucket_set_status (pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED);
+    	log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d", keylen,
+    	    	              key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
     }
 
 
@@ -1165,6 +1180,7 @@ int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *segs, 
 
 
 
+
             /* step3: do update modhash */
 			rt = modhash_update (tcf);
 			if (rt != NC_OK ) {
@@ -1189,12 +1205,8 @@ int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *segs, 
 int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * segs, char* status, char* result){
     struct string sp_app;
     struct array *arr     = &sp->server;
-//    struct array new_servers;
- //   struct array *new_svrs, *old_svrs;
     struct server *svr, *new_svr;
-
     uint32_t n_old_svrs = array_n(arr);
-//    uint32_t n_new_svrs = n_old_svrs + 1;
 
     int port,seg_start,seg_end,istatus;
     size_t ip_len,port_len,seg_start_len;
@@ -1209,14 +1221,12 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     }
     // init the new added svr info
 	if (arr->nelem == arr->nalloc) {
-		printf ("server nelem is up to %d cannot be alloc new item, please restart process!", arr->nelem);
+		snprintf(result,STATS_RESULT_BUFLEN, "server nelem is up to %d, cannot be alloc new item, please restart process!", arr->nelem);
 		return NC_ERROR;
 	}
 
-
     //get the first server info
     svr = array_get(arr,0);
-
     sp_app = svr->app;
 
     // app is different
@@ -1225,13 +1235,11 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
         return NC_ERROR;
     }
 
-
     // MODHASH NEQ modhash
     if((sp->dist_type != DIST_MODHASH )){
         snprintf(result,STATS_RESULT_BUFLEN, "server pool:%s dist_type is not modhash \n", sp->name.data);
         return NC_ERROR;
     }
-
 
     ip_len=0;
 
@@ -1290,26 +1298,6 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     /* precheck ok,start to add new server */
     //snprintf(result,1000,"check ok. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . segstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
 
-
-    // init new servers
-    /* new server alloc
-
-    array_null(&new_servers);
-    new_svrs = &new_servers;
-
-    // allocate new mem
-    ret = array_init(new_svrs, n_new_svrs, sizeof(struct server));
-    if(ret != NC_OK){
-        return NC_ERROR;
-    }
-
-    for(i = 0; i < n_old_svrs; i++){
-        svr     = array_get(arr,i);
-        new_svr = array_push(new_svrs);
-        nc_memcpy( new_svr, svr, new_svrs->size);
-    }
-    */
-
     new_svr = array_push(arr);
 
     ASSERT(new_svr);
@@ -1365,33 +1353,17 @@ int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app,
     new_svr->next_retry = 0LL;
     new_svr->failure_count = 0;
 
+    /* init metric */
 
 
-    //old_svrs = &sp->server;
+    ret  = stats_pool_add_server(sp, new_svr->idx);
+    if (NC_OK != ret ) {
+    	/* deinit server */
+//    	 log_debug(LOG_VERB,"add stats_server_map_one current failed");
+    	return ret;
+    }
 
-    // if the old sp is modified, deinit the server ,or set the is_modified flag to 1
-    /* if(sp->is_modified){
 
-        old_svrs->nelem = new_svrs->nelem;
-        old_svrs->size  = new_svrs->size;
-        old_svrs->elem  = new_svrs->elem;
-        old_svrs->nalloc= new_svrs->nalloc;
-
-        log_debug(LOG_DEBUG, "deinit old server info");
-    }else{ 
-
-        old_svrs->nelem = new_svrs->nelem;
-        old_svrs->size  = new_svrs->size;
-        old_svrs->elem  = new_svrs->elem;
-        old_svrs->nalloc= new_svrs->nalloc;
-
-        sp->is_modified = 1;
-        log_debug(LOG_DEBUG, "set is_modified flag to 1");
-    } */
-
-    // array_each(&sp->server,server_set_new_owner,NULL);
-
-    //snprintf(result,1000,"add server OK. svrapp:%s, app: %s ,iplen: %.*s port_len: %.*s . segstart:%d ,seqend:%d ,status:%d\n",sp_app.data,app,ip_len,inst,port_len,inst+ip_len+1,seg_start,seg_end,istatus);
     return NC_OK;
 }
 
@@ -1411,8 +1383,6 @@ server_set_new_owner(void * elem, void *data){
     }
 
     return NC_OK;
-
-
 }
 
 rstatus_t server_check_hash_keys( struct server_pool *sp){
@@ -1433,7 +1403,7 @@ rstatus_t server_check_hash_keys( struct server_pool *sp){
             if(keys_flag[j] == false && j< MODHASH_TOTAL_KEY ){
                 keys_flag[j] = true;
                 hash_count ++;
-                //printf ("error: hash key  has more than one status is 1!\n");
+
                 //will occur a bus error if a printf
             }else{
                 // more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY

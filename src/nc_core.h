@@ -64,6 +64,8 @@
 #define NC_ENOMEM   -3
 #define NC_DEF_CONF -4 
 
+#define NC_MAX_NSERVER 10240 /*FOR SERVER POOL*/
+
 typedef int rstatus_t; /* return type */
 typedef int err_t;     /* error type */
 

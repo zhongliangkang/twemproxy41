@@ -81,4 +81,5 @@ uint32_t modhash_dispatch(struct continuum *continuum, uint32_t ncontinuum, uint
 uint32_t modhash_dispatch_newserver(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash);
 uint32_t modhash_transfer_status(struct continuum *continuum, uint32_t ncontinuum, uint32_t hash);
 
+rstatus_t modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uint32_t hash, int new_status);
 #endif

@@ -222,8 +222,9 @@ struct msg {
     unsigned             last_fragment:1; /* last fragment? */
     unsigned             swallow:1;       /* swallow response? */
     unsigned             redis:1;         /* redis? */
-    unsigned             transfer_status:2; /* the key is in trans?*/
-    unsigned             redirect:1;      /* redirect? */
+    unsigned             transfer_status:2; /* request: the key is in trans?*/
+    unsigned             redirect:1;        /* request: redirect? */
+    unsigned             redirect_type:1;   /* request: redirect_type 0:key redirect, 1:bucket redirect */
 
 
 };
@@ -265,5 +266,7 @@ struct msg *rsp_recv_next(struct context *ctx, struct conn *conn, bool alloc);
 void rsp_recv_done(struct context *ctx, struct conn *conn, struct msg *msg, struct msg *nmsg);
 struct msg *rsp_send_next(struct context *ctx, struct conn *conn);
 void rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg);
+
+
 
 #endif

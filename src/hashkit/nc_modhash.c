@@ -25,7 +25,9 @@
 #define MODULA_POINTS_PER_SERVER    1
 
 
-
+/* update continuum
+	FIXME: add mutex
+*/
 rstatus_t
 modhash_update(struct server_pool *pool)
 {
@@ -183,6 +185,7 @@ modhash_update(struct server_pool *pool)
               pool->nserver_continuum, pool->ncontinuum,
               (pool->nserver_continuum + continuum_addition) * points_per_server);
 
+
     return NC_OK;
 }
 
@@ -231,3 +234,24 @@ modhash_transfer_status (struct continuum *continuum, uint32_t ncontinuum, uint3
     return (c->status );
 }
 
+/* update continuum
+	FIXME: add mutex
+*/
+rstatus_t
+modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uint32_t hash, int new_status)
+{
+    struct continuum *c;
+    int old_status;
+
+    ASSERT(continuum != NULL);
+    ASSERT(ncontinuum != 0);
+
+    c = continuum + hash % ncontinuum;
+    ASSERT(c->status > 0);
+    ASSERT(new_status > 0);
+    old_status = c->status;
+    c->status = new_status;
+
+    log_debug(LOG_VERB, "update No. %d continuum,hash:%u ,ncontinuum: %u status %d->%d \n",hash%ncontinuum,hash,ncontinuum, old_status, new_status);
+    return (true);
+}

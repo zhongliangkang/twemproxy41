@@ -63,6 +63,10 @@ typedef uint32_t (*hash_t)(const char *, size_t);
 
 #define MODHASH_TOTAL_KEY  420000      /* total hash keys: 42w */
 
+#define MSG_STATUS_NOTRANS  1   /*   */
+#define MSG_STATUS_TRANSING 2   /*   */
+#define MSG_STATUS_TRANSED  3   /*   */
+
 #define SERVER_STATUS_NOTRANS  1   /* return old */
 #define SERVER_STATUS_TRANSING 2   /* return old, try to redirect to new */
 #define SERVER_STATUS_TRANSED  3   /* return new */

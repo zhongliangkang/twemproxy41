@@ -217,4 +217,6 @@ struct stats *stats_create(uint16_t stats_port, char *stats_ip, int stats_interv
 void stats_destroy(struct stats *stats);
 void stats_swap(struct stats *stats);
 
+rstatus_t stats_pool_add_server (struct server_pool *pool, uint32_t newsvr_idx);
+rstatus_t stats_server_add_one (struct array *stats_server, struct array *server, uint32_t newsvr_idx);
 #endif
