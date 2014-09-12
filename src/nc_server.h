@@ -218,11 +218,16 @@ void req_redirect (struct context *ctx, struct conn *c_conn, struct msg *msg);
  * seqs: hash sequence of START-END
  * status: 0 or 1
  * */
-int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
+
+rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
+rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
+rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * app, char * seqs, char* status,struct server *tmpsvr, char* result);
+rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char* result);
+
 rstatus_t server_check_hash_keys( struct server_pool *sp);
+rstatus_t nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 
-int nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 
-int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * seqs, char* status, char* result);
-int nc_is_valid_instance(char *inst, char *ip, int * port);
+
+rstatus_t nc_is_valid_instance(char *inst, char *ip, int * port);
 #endif

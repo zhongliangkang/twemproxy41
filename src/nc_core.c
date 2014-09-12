@@ -71,15 +71,14 @@ core_ctx_create(struct instance *nci)
     ctx->stats->p_sp =(void *) &ctx->pool;
     n = array_n(&ctx->pool);
 
-    log_debug(LOG_VVERB,"ctx->stats->p_sp element num: %d\n",n);
 
     for(i=0;i<n;i++){
             struct server_pool *tcf = array_get(&ctx->pool,i);
-
+            log_debug(LOG_VVERB,"load pool idx: %i, name : %.*s", i,tcf->name.len, tcf->name.data);
             m = array_n(&tcf->server);
             for(j=0;j<m;j++){
                     struct server *tss = array_get(&tcf->server,j);
-                    log_debug(LOG_VVERB,"%d name : %s\n",j,tss->name.data);
+                    log_debug(LOG_VVERB,"%d name : %s",j,tss->name.data);
             }
     }
     

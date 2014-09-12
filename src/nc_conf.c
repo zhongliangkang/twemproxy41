@@ -2012,7 +2012,7 @@ rstatus_t conf_get_distribution( struct conf_pool *sp, struct command *spc, char
 int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * result){
     struct  command * spp;
 
-     log_debug(LOG_VERB, " in sp_get_config_by_string");
+   // log_debug(LOG_VERB, " in sp_get_config_by_string");
     for(spp = conf_commands; spp->name.len != 0; spp++){
         rstatus_t rv;
 
@@ -2131,8 +2131,6 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t 
 
     ASSERT(conf_filename);
 
-   
-
     // read the config, and replace the new config
     for( i=0; i<sp_num; i++){
         lsp = array_get(pool, i);
@@ -2190,11 +2188,9 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t 
                 // maybe there is changed instance, but no connection connected ever,
                 // so here we need to check if there is changed instance,if changed ,use the new instance info
                 if(svr->reload_svr){
-                    
                     ASSERT((char *)svr->mif.new_pname);
                     p_conf = sp_write_line(p_conf, (char *)svr->mif.new_pname, 2, true, true);
                 } else{
-
                     p_conf = sp_write_line(p_conf, (char *)svr->pname.data, 2, true, true);
                 }
             }

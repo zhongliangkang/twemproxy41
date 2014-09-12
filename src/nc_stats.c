@@ -218,52 +218,45 @@ stats_server_map(struct array *stats_server, struct array *server)
     return NC_OK;
 }
 
-rstatus_t
-stats_pool_add_server (struct server_pool *pool, uint32_t newsvr_idx)
-{
-    rstatus_t status;
-    struct stats_pool *stp ;
+rstatus_t stats_pool_add_server(struct server_pool *pool, uint32_t newsvr_idx) {
+	rstatus_t status;
+	struct stats_pool *stp;
 
-    stp = array_get(&pool->ctx->stats->current, pool->idx);
-    status = stats_server_add_one (&stp->server, &pool->server, newsvr_idx);
-    if (NC_OK != status) {
+	stp = array_get(&pool->ctx->stats->current, pool->idx);
+	status = stats_server_add_one(&stp->server, &pool->server, newsvr_idx);
+	if (NC_OK != status) {
+		return status;
+	}
 
-    	return status;
-    }
+	stp = array_get(&pool->ctx->stats->shadow, pool->idx);
+	status = stats_server_add_one(&stp->server, &pool->server, newsvr_idx);
+	if (NC_OK != status) {
+		//FIXME: deinit current
+		return status;
+	}
 
-
-    stp = array_get(&pool->ctx->stats->shadow, pool->idx);
-    status =  stats_server_add_one (&stp->server, &pool->server, newsvr_idx);
-    if (NC_OK != status) {
-    	//FIXME: deinit current
-    	return status;
-    }
-
-    stp = array_get(&pool->ctx->stats->sum, pool->idx);
-    status =  stats_server_add_one (&stp->server, &pool->server, newsvr_idx);
-    if (NC_OK != status) {
-    	//FIXME: deinit current\shadow
-    	return status;
-    }
-    return NC_OK;
+	stp = array_get(&pool->ctx->stats->sum, pool->idx);
+	status = stats_server_add_one(&stp->server, &pool->server, newsvr_idx);
+	if (NC_OK != status) {
+		//FIXME: deinit current\shadow
+		return status;
+	}
+	return NC_OK;
 }
 /*
  * add a new server in alloced array. idx must < NC_MAX_SERVER to avoid realloc
  *  status = stats_pool_map(&st->current, server_pool);
  * */
-rstatus_t
-stats_server_add_one(struct array *stats_server, struct array *server, uint32_t newsvr_idx)
-{
-    rstatus_t status;
-    ASSERT(stats_server != NULL);
-    ASSERT(server != NULL);
+rstatus_t stats_server_add_one(struct array *stats_server, struct array *server, uint32_t newsvr_idx) {
+	rstatus_t status;
+	ASSERT(stats_server != NULL); ASSERT(server != NULL);
 
 	struct server *s = array_get(server, newsvr_idx);
 	if (s->idx != newsvr_idx) {
 		return NC_ERROR;
 	}
 
-	if (newsvr_idx >=  stats_server->nalloc ) {
+	if (newsvr_idx >= stats_server->nalloc) {
 		return NC_ERROR;
 	}
 
@@ -276,7 +269,7 @@ stats_server_add_one(struct array *stats_server, struct array *server, uint32_t 
 
 //   log_debug(LOG_VVVERB, "%s add map %"PRIu32" stats servers", newsvr_idx);
 
-    return NC_OK;
+	return NC_OK;
 }
 
 static void
@@ -834,7 +827,7 @@ stats_send_rsp(struct stats *st)
 
     /* get rid of head,tail space */
     nc_trim(recv_command);
-    log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+    log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
 
     // null command
     if(strlen(recv_command) < 1){
@@ -900,7 +893,7 @@ stats_send_rsp(struct stats *st)
 
     else if(!strcmp(cmd_p[0],"add") && n_field == 6){
 
-        int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
+        int rt = nc_stats_addCommand (st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
         if (NC_OK == rt) {
         	snprintf(result,100,"OK add success\n");
         } else {
@@ -910,6 +903,20 @@ stats_send_rsp(struct stats *st)
     	n = nc_sendn(sd, result, strlen(result));
 
     }
+    else if(!strcmp(cmd_p[0],"adddone") && n_field == 6){
+
+        int rt = nc_stats_addDoneCommand (st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
+        if (NC_OK == rt) {
+        	snprintf(result,100,"OK adddone success\n");
+        } else {
+        	snprintf(result,100,"ERR adddone failed\n");
+        }
+
+    	n = nc_sendn(sd, result, strlen(result));
+
+    }
+
+
     /*
      * change spname ipport new_ipport
     */
@@ -930,7 +937,7 @@ stats_send_rsp(struct stats *st)
     }else if(!strcmp(cmd_p[0],"getkey") && n_field == 3){  /* get hashkey  backend's info */
         int rt;
         rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);
-        printf("get key %s!\n",cmd_p[1]);
+        log_error("receive stats command: getkey %s %s",cmd_p[1], cmd_p[2]);
         n = nc_sendn(sd, result, strlen(result));
     }else{
         char str_e[] = "unkown command.\n";
