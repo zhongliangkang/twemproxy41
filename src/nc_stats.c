@@ -793,170 +793,183 @@ stats_make_rsp(struct stats *st)
     return NC_OK;
 }
 
-static rstatus_t
-stats_send_rsp(struct stats *st)
-{
-    rstatus_t status;
-    ssize_t n;
-    int sd;
+static rstatus_t stats_send_rsp(struct stats *st) {
+	rstatus_t status;
+	ssize_t n;
+	int sd, rt;
+	char recv_command[MAX_COMMAND_LENGTH * MAX_COMMAND_FIELD];
+	char *cmd_p[MAX_COMMAND_FIELD];
+	char *p, *key_point;
+	int n_field;
+	char *result = NULL;
+	char *output = NULL;
 
-    char result[STATS_RESULT_BUFLEN] ;
-
-    char recv_command[MAX_COMMAND_LENGTH*MAX_COMMAND_FIELD];
-    char *cmd_p[MAX_COMMAND_FIELD];
-    char *p,*key_point;
-    int n_field;
-
-    status = stats_make_rsp(st);
-    if (status != NC_OK) {
-        return status;
-    }
-
-    sd = accept(st->sd, NULL, NULL);
-    if (sd < 0) {
-        log_error("accept on m %d failed: %s", st->sd, strerror(errno));
-        return NC_ERROR;
-    }
-
-    n = recv(sd, recv_command, 80, 0);
-    if(n>=2 && recv_command[n-2] == CR && recv_command[n-1] == LF){
-        recv_command[n-2]=recv_command[n-1]=0;
-    }else if(n>=1 && recv_command[n-1] == LF){
-        recv_command[n-1]=0;
-    }
-
-    /* get rid of head,tail space */
-    nc_trim(recv_command);
-    log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
-
-    // null command
-    if(strlen(recv_command) < 1){
-        char str_e[] = "empty command\n";
-        n = nc_sendn(sd, str_e, strlen(str_e));
-        goto end;
-    }
-
-
-    // cut the command into many fields
-    p = recv_command;
-    n_field = 0;
-    while(p){
-        while((key_point = strsep(&p, " \t"))){
-            if(*key_point == 0)
-                continue;
-            else
-                break;
-        }
-        cmd_p[n_field] = key_point;
-
-        n_field++;
-
-        // too many fields
-        if(n_field >= MAX_COMMAND_FIELD){
-            char str_e[] = "error command: too many field in command\n";
-            n = nc_sendn(sd, str_e, strlen(str_e));
-            goto  end;
-        }
-    }
-
-    /* get the stats info of twemproxy */
-    if(!strcmp(cmd_p[0],"stats")){
-        log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
-        n = nc_sendn(sd, st->buf.data, st->buf.len);
-
-    }
-    /*
-     * get spname servers
-     * 	return the server list
-     * get spname listen
-     * 	return the value of listen
-     * */
-    else if(!strcmp(cmd_p[0],"get") && n_field == 3){   /* get config */
-
-        int rt;
-        if(!strcmp(cmd_p[2],"servers")){
-            rt  = sp_get_by_item(cmd_p[1],"server",result, st->p_sp);
-        }else{
-            rt  = conf_get_by_item((uint8_t *)cmd_p[1],(uint8_t *)cmd_p[2], result, st->p_cf);
-        }
-        if(rt != NC_OK){
-            log_error("err ret:%d . msg: %s\n",rt, result);
-        }
-        n = nc_sendn(sd, result, strlen(result));
-
-
-    }
-    /*
-     * add spname ip:port app segS-segE status
-     *
-    */
-
-    else if(!strcmp(cmd_p[0],"add") && n_field == 6){
-
-        int rt = nc_stats_addCommand (st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
-        if (NC_OK == rt) {
-        	snprintf(result,100,"OK add success\n");
-        } else {
-        	snprintf(result,100,"ERR add failed\n");
-        }
-
-    	n = nc_sendn(sd, result, strlen(result));
-
-    }
-    else if(!strcmp(cmd_p[0],"adddone") && n_field == 6){
-
-        int rt = nc_stats_addDoneCommand (st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
-        if (NC_OK == rt) {
-        	snprintf(result,100,"OK adddone success\n");
-        } else {
-        	snprintf(result,100,"ERR adddone failed\n");
-        }
-
-    	n = nc_sendn(sd, result, strlen(result));
-
-    }
-
-
-    /*
-     * change spname ipport new_ipport
-    */
-
-    else if(!strcmp(cmd_p[0],"change") && n_field == 4){    /* change status */
-        int rt;
-        rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
-
-        if(rt != NC_OK){
-            log_error("err ret:%d . msg: %s\n",rt, result);
-        }
-
-        n = nc_sendn(sd, result, strlen(result));
-
-    }else if(!strcmp(cmd_p[0],"delete")){    /* delete server */
-        printf("delete!\n");
-
-    }else if(!strcmp(cmd_p[0],"getkey") && n_field == 3){  /* get hashkey  backend's info */
-        int rt;
-        rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);
-        log_error("receive stats command: getkey %s %s",cmd_p[1], cmd_p[2]);
-        n = nc_sendn(sd, result, strlen(result));
-    }else{
-        char str_e[] = "unkown command.\n";
-        log_debug(LOG_VERB,"%s",str_e);
-        n = nc_sendn(sd, str_e, strlen(str_e));
+	status = stats_make_rsp(st);
+	if (status != NC_OK) {
+		return status;
 	}
 
-    
-    result[0]=0;
+	sd = accept(st->sd, NULL, NULL);
+	if (sd < 0) {
+		log_error("accept on m %d failed: %s", st->sd, strerror(errno));
+		return NC_ERROR;
+	}
+
+	n = recv(sd, recv_command, 80, 0);
+	if (n >= 2 && recv_command[n - 2] == CR && recv_command[n - 1] == LF) {
+		recv_command[n - 2] = recv_command[n - 1] = 0;
+	} else if (n >= 1 && recv_command[n - 1] == LF) {
+		recv_command[n - 1] = 0;
+	}
+
+	/* get rid of head,tail space */
+	nc_trim(recv_command);
+	log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+
+	// null command
+	if (strlen(recv_command) < 1) {
+		char str_e[] = "ERR:empty command";
+		n = nc_sendn(sd, str_e, strlen(str_e));
+		goto end;
+	}
+
+	// cut the command into many fields
+	p = recv_command;
+	n_field = 0;
+	while (p) {
+		while ((key_point = strsep(&p, " \t"))) {
+			if (*key_point == 0)
+				continue;
+			else
+				break;
+		}
+		cmd_p[n_field++] = key_point;
+	}
+
+	// too many fields
+	if (n_field >= MAX_COMMAND_FIELD) {
+		char str_e[] = "ERR:bad command: too many field in command\n";
+		n = nc_sendn(sd, str_e, strlen(str_e));
+		goto end;
+	}
+
+
+
+	/* get the stats info of twemproxy */
+	if (!strcmp(cmd_p[0], "stats")) {
+		log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+		n = nc_sendn(sd, st->buf.data, st->buf.len);
+		goto end;
+
+	}
+
+	result = nc_alloc(STATS_RESULT_BUFLEN + 1);
+	output = nc_alloc(STATS_RESULT_BUFLEN + 1);
+
+	if (!result || !output) {
+		char str_e[] = "ERR:malloc failed\n";
+		n = nc_sendn(sd, str_e, strlen(str_e));
+		goto end;
+	}
+
+	memset(result, '0', STATS_RESULT_BUFLEN + 1);
+	memset(output, '0', STATS_RESULT_BUFLEN + 1);
+
+	/*
+	 * get spname servers
+	 * 	return the server list
+	 * get spname listen
+	 * 	return the value of listen
+	 * */
+	if (!strcmp(cmd_p[0], "get") && n_field == 3) { /* get config */
+		if (!strcmp(cmd_p[2], "servers")) {
+			rt = sp_get_by_item(cmd_p[1], "server", result, st->p_sp);
+		} else {
+			rt = conf_get_by_item((uint8_t *) cmd_p[1], (uint8_t *) cmd_p[2], result, st->p_cf);
+		}
+		if (rt != NC_OK) {
+			log_error("err ret:%d . msg: %s\n", rt, result);
+		}
+		n = nc_sendn(sd, result, strlen(result));
+
+	}
+	/*
+	 * add spname ip:port app segS-segE status
+	 *
+	 */
+
+	else if (!strcmp(cmd_p[0], "add") ) {
+		if (n_field != 5) {
+			snprintf(output, STATS_RESULT_BUFLEN, "ERR: add command, bad argument\n");
+		} else {
+			rt = nc_stats_addCommand(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], "2", result);
+			if (NC_OK == rt) {
+				snprintf(output, STATS_RESULT_BUFLEN, "OK\n");
+			} else {
+				snprintf(output, STATS_RESULT_BUFLEN, "ERR: %s\n", result);
+			}
+		}
+
+		n = nc_sendn(sd, output, strlen(output));
+
+	}
+	/*
+	 * adddone, set status 2 to 1
+	 * */
+	else if (!strcmp(cmd_p[0], "adddone")) {
+		if (n_field != 5) {
+			snprintf(output, STATS_RESULT_BUFLEN, "ERR: adddone command, bad argument\n");
+		} else {
+			rt = nc_stats_addDoneCommand(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], "2", result);
+			if (NC_OK == rt) {
+				snprintf(output, STATS_RESULT_BUFLEN, "OK\n");
+			} else {
+				snprintf(output, STATS_RESULT_BUFLEN, "ERR: %s\n", result);
+			}
+		}
+
+		n = nc_sendn(sd, output, strlen(output));
+	}
+
+	/*
+	 * change spname ipport new_ipport
+	 */
+
+	else if (!strcmp(cmd_p[0], "change") && n_field == 4) { /* change status */
+		rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
+
+		if (rt != NC_OK) {
+			log_error("nc_server_change_instance failed:%d %s\n", rt, result);
+		}
+
+		n = nc_sendn(sd, result, strlen(result));
+
+	} else if (!strcmp(cmd_p[0], "delete")) { /* delete server */
+
+	} else if (!strcmp(cmd_p[0], "getkey") && n_field == 3) { /* get hashkey  backend's info */
+		rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);
+		log_error("receive stats command: getkey %s %s", cmd_p[1], cmd_p[2]);
+		n = nc_sendn(sd, result, strlen(result));
+	} else {
+		char str_e[] = "unkown command.\n";
+		log_debug(LOG_VERB,"%s",str_e);
+		n = nc_sendn(sd, str_e, strlen(str_e));
+	}
+
+	result[0] = 0;
 end:
-    if (n < 0) {
-        log_error("send stats on sd %d failed: %s", sd, strerror(errno));
-        close(sd);
-        return NC_ERROR;
-    }
 
-    close(sd);
+	if (result) free(result);
+	if (output) free(output);
 
-    return NC_OK;
+	if (n < 0) {
+		log_error("send stats on sd %d failed: %s", sd, strerror(errno));
+		close(sd);
+		return NC_ERROR;
+	}
+
+	close(sd);
+	return NC_OK;
 }
 
 static void

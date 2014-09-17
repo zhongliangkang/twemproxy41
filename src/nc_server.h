@@ -118,6 +118,7 @@ struct server {
 
     int64_t            next_retry;    /* next retry time in usec */
     uint32_t           failure_count; /* # consecutive failures */
+
 };
 
 struct server_pool {
@@ -156,6 +157,7 @@ struct server_pool {
     uint32_t           server_connections;   /* maximum # server connection */
     int64_t            server_retry_timeout; /* server retry timeout in usec */
     uint32_t           server_failure_limit; /* server failure limit */
+    pthread_mutex_t    mutex;                /* mutex for modhash_update */
     unsigned           auto_eject_hosts:1;   /* auto_eject_hosts? */
     unsigned           preconnect:1;         /* preconnect? */
     unsigned           redis:1;              /* redis? */
@@ -225,6 +227,7 @@ rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * 
 rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char* result);
 
 rstatus_t server_check_hash_keys( struct server_pool *sp);
+
 rstatus_t nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 
 

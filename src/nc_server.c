@@ -938,6 +938,7 @@ server_pool_each_set_owner(void *elem, void *data)
 rstatus_t
 server_pool_run(struct server_pool *pool)
 {
+	rstatus_t rt;
     ASSERT(array_n(&pool->server) != 0);
 
     switch (pool->dist_type) {
@@ -951,7 +952,12 @@ server_pool_run(struct server_pool *pool)
         return random_update(pool);
 
     case DIST_MODHASH:
-        return modhash_update(pool);
+	    pthread_mutex_lock(&pool->mutex);
+		log_error("pthread_mutex_lock for modhash_update");
+		rt = modhash_update(pool);
+		pthread_mutex_unlock(&pool->mutex);
+		log_error("pthread_mutex_unlock for modhash_update");
+        return  rt;
 
     default:
         NOT_REACHED();
@@ -1100,8 +1106,8 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
 
                         rt = server_pool_get_config_by_string(tcf, &item, result);
                         if( rt != NC_OK){
-                            log_error("get config by string fail: %s\n",sp_item );
-                            snprintf(result,80,"get config by string fail: %s\n",sp_item );
+                            log_error("get config by string fail: %s",sp_item );
+                            snprintf(result,80,"get config by string fail: %s",sp_item );
                             return NC_ERROR;
                         }else{
                             return NC_OK;
@@ -1145,24 +1151,25 @@ int server_pool_get_config_by_string(struct server_pool *sp, struct string *item
 
 
 rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* app, char *segs, char *status, char *result) {
-	uint32_t n, nserver, i;
-	struct array *arr = sp;
-	int rt;
+	uint32_t npool, nserver, i;
+	struct array *splist = sp;
+	int rt, n;
 	struct string item;
 	struct server tmpsvr;
-	struct server_pool *pool;
+	struct server_pool *tcf, *pool;
 	uint32_t server_index ;
+	char buf[128]; //pname buf
+
 
 	log_debug(LOG_VERB, "addDoneCommand: %s %s %s %s %s", sp_name, inst, app, segs, status);
 
 	item.data = (uint8_t *) inst;
 	item.len = (uint32_t) nc_strlen(inst);
 
-	n = array_n(arr);
-
+	npool = array_n(splist);
 	pool = NULL;
-	for (i = 0; i < n; i++) {
-		struct server_pool *tcf = array_get(arr, i);
+	for (i = 0; i < npool; i++) {
+		 tcf = array_get(splist, i);
 		//in this server pool
 		if (!strcmp(sp_name, (const char*) tcf->name.data)) {
 			pool = tcf;
@@ -1171,12 +1178,9 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 	}
 
 	if (pool == NULL) {
-		snprintf(result, 80, "cannot find redis pool %s\n", sp_name);
+		snprintf(result, STATS_RESULT_BUFLEN, "pool %s not found", sp_name);
 		return NC_ERROR;
 	}
-
-
-
 	log_debug(LOG_VERB,"match sp name: %s, inst: %s, app:%s, segs: %s, status: %s", pool->name.data, inst,app,segs,status);
 
 
@@ -1189,7 +1193,12 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		return rt;
 	}
 
-	//int idx  = -1;
+	/* find status = 2 line*/
+	int dstsvr_idx = - 1;
+	int dstsvr_num = 0;
+	int dstsvr_num_badstatus = 0;
+
+	rt = NC_OK;
 	nserver = array_n(&pool->server);
 	for (server_index = 0; server_index < nserver; server_index++) {
 		struct server *s = array_get(&pool->server, server_index);
@@ -1197,41 +1206,93 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 			continue;
 		}
 
-		if (tmpsvr.seg_start == s->seg_start && tmpsvr.seg_start == s->seg_end && s->status == 2
-				&& (0 == strcmp((char *)tmpsvr.name.data, (char *)s->name.data))) {
-
-			s->status = 1;
-		}
-
-		if (s->seg_start >= tmpsvr.seg_start && s->seg_end <= tmpsvr.seg_end) {
-			s->seg_start = -1;
-			s->seg_end = -1;
-			s->status = 0;
-		}
-
-		else if (s->seg_start <= tmpsvr.seg_start && s->seg_end > tmpsvr.seg_start && s->seg_end < tmpsvr.seg_end) {
-			s->seg_end = tmpsvr.seg_start - 1;
-			s->status = 1;
-			if (s->seg_start > s->seg_end) {
-				s->status = 0;
-				s->seg_start = -1;
+		if (tmpsvr.seg_start == s->seg_start && tmpsvr.seg_end == s->seg_end
+			 && (0 == strncmp((char *) tmpsvr.name.data, (char *) s->name.data,tmpsvr.name.len))) {
+			dstsvr_idx = (int ) server_index;
+			dstsvr_num ++;
+			if (s->status == 1) {
+				dstsvr_num_badstatus ++;
+				snprintf(result, STATS_RESULT_BUFLEN,"bad status, server %s %d (shouldbe 2) ", s->name.data, s->status);
+				log_error(result);
+				return NC_ERROR;
 			}
 		}
-
-		else if (s->seg_end >= tmpsvr.seg_end && s->seg_start > tmpsvr.seg_start && s->seg_start < tmpsvr.seg_end) {
-			s->seg_start = s->seg_end + 1;
-			s->status = 1;
-			if (s->seg_start > s->seg_end) {
-				s->status = 0;
-				s->seg_start = -1;
-				s->seg_end = -1;
-			}
-		}
-
-		log_debug(LOG_VERB, "%s %d %d %d\n", s->name, s->status, s->seg_start , s->seg_end);
 	}
 
+	if (dstsvr_num == 0) {
+		snprintf(result, STATS_RESULT_BUFLEN,"server '%s %d-%d %d' not found, please add first",tmpsvr.name.data, tmpsvr.seg_start, tmpsvr.seg_end, tmpsvr.status);
+		log_error(result);
+		return NC_ERROR;
+	} else 	if (dstsvr_num > 1) {
+		snprintf(result, STATS_RESULT_BUFLEN,"server '%s %d-%d %d' define too many times: %d",tmpsvr.name.data, tmpsvr.seg_start, tmpsvr.seg_end, tmpsvr.status,dstsvr_num);
+		log_error(result);
+		return NC_ERROR;
+	}
 
+	//int idx  = -1;
+	nserver = array_n(&pool->server);
+	for (server_index = 0; server_index < nserver; server_index++) {
+		struct server *s = array_get(&pool->server, server_index);
+		bool update = false;
+		if (s->status == 0) {
+			continue;
+		}
+
+		log_debug(LOG_VERB, "%s %d %d %d", s->name.data, s->status, s->seg_start , s->seg_end);
+
+		if (server_index == (uint32_t )dstsvr_idx  ) {
+			if (tmpsvr.seg_start == s->seg_start && tmpsvr.seg_end == s->seg_end && s->status == 2) {
+				if ( 0 == strncmp((char *)tmpsvr.name.data, (char *)s->name.data, tmpsvr.name.len)) {
+					s->status = 1;
+					update = true;
+				} else {
+					log_debug(LOG_VERB, "error %s %d ne %s %d ", s->name.data, s->name.len, tmpsvr.name.data,tmpsvr.name.len);
+				}
+			}
+
+		} else {
+
+			if (s->seg_start >= tmpsvr.seg_start && s->seg_end <= tmpsvr.seg_end) {
+				s->seg_start = 0;
+				s->seg_end = 0;
+				s->status = 0;
+				update = true;
+			}
+
+			else if (s->seg_start <= tmpsvr.seg_start && s->seg_end > tmpsvr.seg_start && s->seg_end < tmpsvr.seg_end) {
+				s->seg_end = tmpsvr.seg_start - 1;
+				s->status = 1;
+				if (s->seg_start > s->seg_end) {
+					s->status = 0;
+//					s->seg_start = 0;
+				}
+				update = true;
+			}
+
+			else if (s->seg_end >= tmpsvr.seg_end && s->seg_start >= tmpsvr.seg_start && s->seg_start < tmpsvr.seg_end) {
+				s->seg_start = tmpsvr.seg_end + 1;
+				s->status = 1;
+				if (s->seg_start > s->seg_end) {
+					s->status = 0;
+				}
+				update = true;
+			}
+		}
+/*
+ *
+ 127.0.0.1:30001:1 pvz1 100000-199999 1
+ */
+		if (update) {
+			n  = snprintf (buf, 128, "%s:1 %s %d-%d %d", s->name.data, s->app.data, s->seg_start,s->seg_end, s->status );
+			if (n == 1024 || n <= 0 ) {
+				//error
+			}
+
+			string_deinit(&s->pname);
+			string_copy(&s->pname, (uint8_t *)buf, (uint32_t)strlen(buf));
+			log_debug(LOG_VERB, "add done %s %d %d %d => %s", s->name.data, s->status, s->seg_start , s->seg_end, s->pname.data);
+		}
+	}
 
 	if (rt != NC_OK) {
 
@@ -1241,18 +1302,27 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 	}
 
 	//nc_update_server(pool, &tmpsvr, result);
-	string_deinit ( &tmpsvr.app);
-	string_deinit ( &tmpsvr.name);
-	string_deinit ( &tmpsvr.pname);
+//	string_deinit ( &tmpsvr.app);
+//	string_deinit ( &tmpsvr.name);
+//	string_deinit ( &tmpsvr.pname);
 
 	/* step3: do update modhash */
+
+    pthread_mutex_lock(&pool->mutex);
+    log_error("pthread_mutex_lock for modhash_update");
 	rt = modhash_update(pool);
+    pthread_mutex_unlock(&pool->mutex);
+    log_error("pthread_mutex_unlock for modhash_update");
+
 	if (rt != NC_OK) {
-		log_error("fetal error:modhash_update failed\n");
+		log_error("fetal error:modhash_update failed");
 		return NC_ERROR;
 	}
 
-	sp_write_conf_file(pool, i, -1, 0);
+	rt = sp_write_conf_file(pool, 0, -1, 0);
+	if (rt != NC_OK) {
+		log_error("error: sp_write_conf_file failed");
+	}
 
 	return NC_OK;
 }
@@ -1279,17 +1349,16 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 		struct server_pool *tcf = array_get(arr, i);
 		//in this server pool
 		if (!strcmp(sp_name, (const char*) tcf->name.data)) {
-			log_debug(LOG_VERB,"match sp name: %s, inst: %s, app:%s, segs: %s, status: %s", sp_name,inst,app,segs,status);
+//			log_debug(LOG_VERB,"nc_add_a_server pool: %s, inst: %s, app:%s, segs: %s, status: %s", sp_name,inst,app,segs,status);
 			pool = tcf;
 			break;
 		}
 	}
 
 	if (pool == NULL) {
-		snprintf(result, 80, "cannot find redis pool %s\n", sp_name);
+		snprintf(result, STATS_RESULT_BUFLEN, "pool %s not found", sp_name);
 		return NC_ERROR;
 	}
-
 
 	/* step1: precheck  */
 
@@ -1309,18 +1378,22 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 	//int old_server_idx = -1;
 	for (server_index = 0; server_index < nserver; server_index++) {
 		struct server *s = (struct server *) array_get(&pool->server, server_index);
-		log_debug(LOG_VERB, "ADD hello world %s", s->name.data);
 		if (s->status == 0) {
 			continue;
 		}
-
+		// tmpsvr in s or tmpsvr union s > 0
 		if ((tmpsvr.seg_start >= s->seg_start && tmpsvr.seg_start <= s->seg_end)
 				  || (tmpsvr.seg_end >= s->seg_start && tmpsvr.seg_end <= s->seg_end ) ) {
+
+			if (0 == string_compare(&tmpsvr.name, &s->name)) {
+				snprintf(result, STATS_RESULT_BUFLEN, "cannot transfer to same instance %s -> %s", s->pname.data, tmpsvr.pname.data) ;
+				goto err;
+			}
 
 			if (s->status == 1) {
 				seg_ok ++;
 			} else if (s->status == 2 || s->status == 3) {
-				snprintf(result, 1000, "segment conflit %s\n", s->pname.data);
+				snprintf(result, STATS_RESULT_BUFLEN, "seg is in transfering %s", s->pname.data);
 				goto err;
 			} else {
 				//NO REACH
@@ -1329,24 +1402,37 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 
 	}
 
+    pthread_mutex_lock(&pool->mutex);
+	log_error("pthread_mutex_lock for nc_add_new_server");
 	nc_add_new_server(pool, &tmpsvr, result);
+	pthread_mutex_unlock(&pool->mutex);
+	log_error("pthread_mutex_unlock for nc_add_new_server");
 
+	string_deinit ( &tmpsvr.app);
+	string_deinit ( &tmpsvr.name);
+	string_deinit ( &tmpsvr.pname);
 
 	/* step3: do update modhash */
-
+    pthread_mutex_lock(&pool->mutex);
+	log_error("pthread_mutex_lock for modhash_update");
 	rt = modhash_update(pool);
+	pthread_mutex_unlock(&pool->mutex);
+	log_error("pthread_mutex_unlock for modhash_update");
 	if (rt != NC_OK) {
-		log_error("fetal error:modhash_update failed\n");
+		log_error("fetal error:modhash_update failed");
 		return NC_ERROR;
 	}
 
-	sp_write_conf_file(pool, i, -1, 0);
+	rt = sp_write_conf_file(pool, i, -1, 0);
+	if (rt != NC_OK) {
+		log_error("error: sp_write_conf_file failed");
+	}
 
 	return NC_OK;
 
 
 err:
-	string_deinit ( &tmpsvr.app);
+	string_deinit ( &tmpsvr.app); //deinit 2 times
 	string_deinit ( &tmpsvr.name);
 	string_deinit ( &tmpsvr.pname);
 	// not found the config
@@ -1356,7 +1442,6 @@ err:
 }
 
 /* precheck for adding a server to a server_pool */
-
 rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * app, char * segs, char* status, struct server* tmpsvr, char* result) {
 	struct string sp_app;
 	struct array *server;
@@ -1377,11 +1462,12 @@ rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * 
 	n_old_svrs = array_n(server);
 
 	if (n_old_svrs <= 0) {
+		snprintf(result, STATS_RESULT_BUFLEN, "bad server num %d", n_old_svrs);
 		return NC_ERROR;
 	}
 
 	if (server->nelem == server->nalloc) {
-		snprintf(result, STATS_RESULT_BUFLEN, "server nelem is up to %d, cannot be alloc new item, please restart process!", server->nelem);
+		snprintf(result, STATS_RESULT_BUFLEN, "too many servers, server nelem is up to %d, cannot be alloc new item, please restart process!", server->nelem);
 		return NC_ERROR;
 	}
 
@@ -1391,13 +1477,13 @@ rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * 
 
 	// app is different
 	if (strcmp(app, (const char*) sp_app.data)) {
-		snprintf(result, STATS_RESULT_BUFLEN, "new add app '%s' is different from app in server pool '%s' \n", app, sp_app.data);
+		snprintf(result, STATS_RESULT_BUFLEN, "bad app, new %s vs old %s", app, svr->app.data);
 		return NC_ERROR;
 	}
 
 	// MODHASH NEQ modhash
 	if ((sp->dist_type != DIST_MODHASH)) {
-		snprintf(result, STATS_RESULT_BUFLEN, "server pool:%s dist_type is not modhash \n", sp->name.data);
+		snprintf(result, STATS_RESULT_BUFLEN, "bad dist_type, should be modhash");
 		return NC_ERROR;
 	}
 
@@ -1411,7 +1497,7 @@ rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * 
 	}
 
 	if (ip_len == 0 || port_len == 0) {
-		snprintf(result, 1000, "config error: instance:%s bad format (IP:PORT) \n", inst);
+		snprintf(result, STATS_RESULT_BUFLEN, "bad name %s", inst);
 		return NC_ERROR;
 	}
 
@@ -1421,7 +1507,7 @@ rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * 
 	pc = nc_strchr(segs, segs + nc_strlen(segs), '-');
 
 	if (!pc) {
-		snprintf(result, 1000, " config error: segment:%s bad format (int1-int2) \n", segs);
+		snprintf(result, STATS_RESULT_BUFLEN, "bad segment %s", segs);
 		return NC_ERROR;
 	}
 
@@ -1435,17 +1521,20 @@ rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * 
 
 	istatus = nc_atoi(status, 1);
 
-	if (port <= 0 || seg_start < 0 || seg_end <= 0 || istatus < 0) {
-		snprintf(result, 1000, " config error: %s %s %s %s\n", inst, app, segs, status);
-		return NC_ERROR;
+	if (istatus != 2) {
+			snprintf(result, STATS_RESULT_BUFLEN, "bad status %s",status);
+			return NC_ERROR;
 	}
 
-	if (seg_start > seg_end) {
-		snprintf(result, 1000, "seg_start cannot bigger than seg_end,start: %d, end: %d\n", seg_start, seg_end);
-		return NC_ERROR;
+	if (port  <= 0  || port > 65535 ) {
+			snprintf(result, STATS_RESULT_BUFLEN, "bad ip:port %s",inst);
+			return NC_ERROR;
 	}
 
-
+	if (seg_start > seg_end || seg_start < 0 || seg_end < 0 || seg_start >= MODHASH_TOTAL_KEY || seg_end >= MODHASH_TOTAL_KEY) {
+		snprintf(result, STATS_RESULT_BUFLEN, "bad segment %s", segs);
+		return NC_ERROR;
+	}
 
 	tmpsvr->port = (uint16_t) port;
 	tmpsvr->weight = 1;
@@ -1513,7 +1602,7 @@ rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char*
 	}
 
 	if (server->nelem == server->nalloc) {
-		snprintf(result, STATS_RESULT_BUFLEN, "server nelem is up to %d, cannot be alloc new item, please restart process!", server->nelem);
+		snprintf(result, STATS_RESULT_BUFLEN, "server nelem is up to %d, cannot be alloc new item, please restart process", server->nelem);
 		return NC_ERROR;
 	}
 
@@ -1524,13 +1613,13 @@ rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char*
 
 	// app is different
 	if (strcmp((const char*) tmpsvr->app.data, (const char*) sp_app.data)) {
-		snprintf(result, STATS_RESULT_BUFLEN, "new add app '%s' is different from app in server pool '%s' \n", tmpsvr->app.data, sp_app.data);
+		snprintf(result, STATS_RESULT_BUFLEN, "new add app '%s' is different from app in server pool '%s'", tmpsvr->app.data, sp_app.data);
 		return NC_ERROR;
 	}
 
 	// MODHASH NEQ modhash
 	if ((sp->dist_type != DIST_MODHASH)) {
-		snprintf(result, STATS_RESULT_BUFLEN, "server pool:%s dist_type is not modhash \n", sp->name.data);
+		snprintf(result, STATS_RESULT_BUFLEN, "server pool:%s dist_type is not modhash", sp->name.data);
 		return NC_ERROR;
 	}
 
@@ -1539,7 +1628,18 @@ rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char*
 	new_svr = array_push(server);
 
 	ASSERT(new_svr);
-	*new_svr = *tmpsvr;
+	//*new_svr = *tmpsvr;
+	string_init (&new_svr->app);
+	string_init (&new_svr->name);
+	string_init (&new_svr->pname);
+	string_copy(&new_svr->app, tmpsvr->app.data, tmpsvr->app.len );
+	string_copy(&new_svr->name, tmpsvr->name.data, tmpsvr->name.len );
+	string_copy(&new_svr->pname, tmpsvr->pname.data, tmpsvr->pname.len );
+	new_svr->seg_end = tmpsvr->seg_end;
+	new_svr->seg_start = tmpsvr->seg_start;
+	new_svr->status = tmpsvr->status;
+	new_svr->weight = tmpsvr->weight;
+	new_svr->port = tmpsvr->port;
 
 	new_svr->idx = array_idx(server, new_svr);
 	new_svr->owner = sp;
@@ -1571,19 +1671,17 @@ rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char*
 	new_svr->family = ski->family;
 	new_svr->addrlen = ski->addrlen;
 	new_svr->addr = (struct sockaddr*) &ski->addr;
-
-	/* app */
-
+	new_svr->sock_need_free = false;
 	new_svr->ns_conn_q = 0;
-	TAILQ_INIT(&new_svr->s_conn_q);
 	new_svr->next_retry = 0LL;
 	new_svr->failure_count = 0;
-
+	new_svr->reload_svr = false;
+	pthread_mutex_init(&new_svr->mutex, NULL);
+	TAILQ_INIT(&new_svr->s_conn_q);
 	/* init metric */
 	ret = stats_pool_add_server(sp, new_svr->idx);
 	if (NC_OK != ret) {
-		snprintf(result, 1000, "stats_pool_add_server error \n");
-
+		snprintf(result, 1000, "stats_pool_add_server error");
 		return ret;
 	}
 	return NC_OK;
@@ -1608,15 +1706,31 @@ server_set_new_owner(void * elem, void *data){
 }
 */
 
-
 rstatus_t server_check_hash_keys(struct server_pool *sp) {
 	struct server *server;
-	bool keys_flag[MODHASH_TOTAL_KEY];
+//	bool keys_flag[MODHASH_TOTAL_KEY];// why will occur a bus error in mac
+	bool * keys_flag;
 	uint32_t n_server, i, hash_count;
 	int j;
+	uint32_t server_index;
 
-	memset(keys_flag, 0, sizeof(keys_flag));
+	keys_flag = nc_alloc(sizeof(bool) * MODHASH_TOTAL_KEY);
+	if (! keys_flag) {
+		return NC_ERROR;
+	} else {
+		log_debug(LOG_VERB, "server_check_hash_keys malloc %d success", sizeof(bool) * MODHASH_TOTAL_KEY);
+	}
+
+	memset(keys_flag, '0', sizeof(bool) * MODHASH_TOTAL_KEY);
+
 	n_server = array_n(&sp->server);
+	log_debug(LOG_VERB, "server_check_hash_keys n_server %d", n_server);
+
+	//int old_server_idx = -1;
+	for (server_index = 0; server_index < n_server; server_index++) {
+		struct server *s = (struct server *) array_get(&sp->server, server_index);
+		log_debug(LOG_VERB, "server_check_hash_keys add hello world %s", s->pname.data);
+	}
 	hash_count = 0;
 
 	for (i = 0; i < n_server; i++) {
@@ -1632,28 +1746,37 @@ rstatus_t server_check_hash_keys(struct server_pool *sp) {
 			} else {
 				// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
 				//log_error("error: hash key '%d' has more than one status is 1!\n",j);
-				return NC_ERROR;
+				goto err;
 			}
 		}
 	}
 
 	// not enogh slot status is 1!
 	if (hash_count != MODHASH_TOTAL_KEY) {
-		log_error("error: there are %d keys have no valid backends!\n", MODHASH_TOTAL_KEY - hash_count);
+		log_error("error: there are %d keys have no valid backends!", MODHASH_TOTAL_KEY - hash_count);
 
 		//print 10 error key
 		for (i = 0, j = 0; i < MODHASH_TOTAL_KEY; i++) {
 			if (keys_flag[i] == false) {
-				log_error("error: key '%d' has no valid backend.\n", i);
+				log_error("error: key '%d' has no valid backend.", i);
 				j++;
 			}
 			if (j > 10)
 				break;
 		}
-		return NC_ERROR;
+		goto err;
 	}
-
+	if (keys_flag) {
+		free (keys_flag);
+	}
 	return NC_OK;
+
+err:
+	if (keys_flag) {
+		free (keys_flag);
+	}
+	return NC_ERROR;
+
 }
 
 
@@ -1843,7 +1966,7 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
             }
 
             // step 1: first write new config file
-            sp_write_conf_file(sp, i, j, new_pname);
+            sp_write_conf_file(sp, i, (int) j, new_pname);
 
             /* save new backend information for main thread to modify, thread lock for safe */
             pthread_mutex_lock(&svr->mutex);

@@ -41,9 +41,10 @@ modhash_update(struct server_pool *pool)
     uint32_t server_index;        /* server index */
     uint32_t total_weight;        /* total live server weight */
     int64_t now;                  /* current timestamp in usec */
-    bool first_init = false;       /* is first_init ?*/
+
     uint32_t pointer_counter_status2 ; /* #pointers on continuum of transfer status */
     uint32_t pool_transfer_status = 0;
+    bool first_init = false;       /* is first_init ?*/
 
 //    bool    keys_flag[MODHASH_TOTAL_KEY];
  //   memset(keys_flag, 0, sizeof(keys_flag));
@@ -52,11 +53,18 @@ modhash_update(struct server_pool *pool)
     if (now < 0) {
         return NC_ERROR;
     }
+    nserver = array_n(&pool->server);
 
-    // we just report an error here
-     if(server_check_hash_keys(pool) != NC_OK){
-        log_error("there may be some error in the config file.");
-        return NC_ERROR;
+	//int old_server_idx = -1;
+	for (server_index = 0; server_index < nserver; server_index++) {
+		struct server *s = (struct server *) array_get(&pool->server, server_index);
+		log_debug(LOG_VERB, "modhash_update server %s", s->pname.data);
+	}
+
+
+    if(NC_OK != server_check_hash_keys(pool) ){
+       log_error("there may be some error in the config file.");
+       return NC_ERROR;
     }
 
     nserver = array_n(&pool->server);

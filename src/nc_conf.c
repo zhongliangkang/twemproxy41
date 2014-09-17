@@ -333,7 +333,7 @@ conf_pool_each_transform(void *elem, void *data)
     sp->server_failure_limit = (uint32_t)cp->server_failure_limit;
     sp->auto_eject_hosts = cp->auto_eject_hosts ? 1 : 0;
     sp->preconnect = cp->preconnect ? 1 : 0;
-
+    pthread_mutex_init(&sp->mutex, NULL);
     status = server_init(&sp->server, &cp->server, sp);
 
     if (status != NC_OK) {
@@ -1202,6 +1202,11 @@ conf_validate_server(struct conf *cf, struct conf_pool *cp)
         return NC_ERROR;
     }
 
+    if (cp->distribution == DIST_MODHASH) {
+    	log_error("conf: pool '%.*s' distribution is MODHASH, skip check same name", cp->name.len,
+    	                  cp->name.data);
+    	return NC_OK;
+    }
     /*
      * Disallow duplicate servers - servers with identical "host:port:weight"
      * or "name" combination are considered as duplicates. When server name
@@ -1562,7 +1567,7 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
 
     value = array_top(&cf->arg);
 
-    log_debug(LOG_VERB,"content: %s\n",value->data);
+    log_debug(LOG_VERB,"content: %s",value->data);
 
     /* parse "hostname:port:weight [name]" or "/path/unix_socket:weight [name]" from the end */
     p = value->data + value->len - 1;
@@ -1629,7 +1634,7 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
         p = q - 1;
     }
 
-    log_debug(LOG_VERB,"k delimlen: %d %d :status:%s, seg:%s,%s,%s, name:%s, port:%s,papp:%s\n",k,delimlen,pstatus,seg,p_seg_start,p_seg_end,name,port,papp);
+    log_debug(LOG_VERB,"k delimlen: %d %d :status:%s, seg:%s,%s,%s, name:%s, port:%s,papp:%s",k,delimlen,pstatus,seg,p_seg_start,p_seg_end,name,port,papp);
 
     if (k != delimlen) {
         return "has an invalid \"hostname:port:weight [name]\"or \"/path/unix_socket:weight [name]\" format string";
@@ -1638,7 +1643,7 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     pname = value->data;
     pnamelen = namelen > 0 ? value->len - (namelen + 1) : value->len;
 
-    log_debug(LOG_VERB,"%d %d pname:%s %d \n value:%s\n",seg_start_len,seg_end_len,pname,pnamelen,value->data);
+    log_debug(LOG_VERB,"%d %d pname:%s %d \n value:%s",seg_start_len,seg_end_len,pname,pnamelen,value->data);
 
     status = string_copy(&field->pname, pname, pnamelen);
     if (status != NC_OK) {
@@ -1884,7 +1889,7 @@ conf_get_by_item(uint8_t *sp_name, uint8_t *sp_item ,char *result, void *sp){
                         rt = sp_get_config_by_string(tcf, &item, result);
                         if( rt != NC_OK && rt != NC_DEF_CONF){
                             //log_error("get config by string fail: %s\n",sp_item );
-                            snprintf(result,80,"get config by string fail: %s\n",sp_item );
+                            snprintf(result,80,"get config by string fail: %s",sp_item );
                             return NC_ERROR;
                         }else{
                             return rt;
@@ -2101,7 +2106,7 @@ sp_write_line( char * conf_buff, char *line, int conf_level, bool with_head,bool
 
 
 /* rewrite config */
-rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t  svr_idx, char *new_pname){
+rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, int  svr_idx, char *new_pname){
     struct conf *cf;
     char  *conf_filename = NULL;
 
@@ -2151,7 +2156,6 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t 
         /* read each config item */ 
         for (cmd = conf_commands; cmd->name.len != 0; cmd++) {
 
-
             if( !strcmp((const char*)cmd->name.data, "servers")||
                     !strcmp((const char*)cmd->name.data, "client_connections")){
                 //ret = sp_get_by_item(lsp->name.data,"server",conf_item, pool);
@@ -2175,6 +2179,9 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t 
         svr_num = array_n(&lsp->server);
         for(j=0; j< svr_num; j++){
             svr = array_get(&lsp->server,j);
+            if (svr->status == 0) {
+            	continue;
+            }
 
             // add lock,here we need read the svr->reload_svr flag, for safe
             pthread_mutex_lock(&svr->mutex);
@@ -2192,6 +2199,7 @@ rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, uint32_t 
                     p_conf = sp_write_line(p_conf, (char *)svr->mif.new_pname, 2, true, true);
                 } else{
                     p_conf = sp_write_line(p_conf, (char *)svr->pname.data, 2, true, true);
+                	log_debug(LOG_VERB, "write_conf: %s", svr->pname.data);
                 }
             }
 
@@ -2241,7 +2249,7 @@ rstatus_t conf_check_hash_keys(struct conf_pool *p){
                 hash_count ++;
             }else{
                 // more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
-                log_error("error: hash key '%d' has more than one status is 1!\n",j);
+                log_error("error: hash key '%d' has more than one status is 1!",j);
                 return NC_ERROR;
             }
         }
@@ -2251,11 +2259,11 @@ rstatus_t conf_check_hash_keys(struct conf_pool *p){
 
     // not enogh slot status is 1!
     if(hash_count < MODHASH_TOTAL_KEY){
-        log_error("error: there are %d keys have no valid backends!\n",MODHASH_TOTAL_KEY - hash_count);
+        log_error("error: there are %d keys have no valid backends!",MODHASH_TOTAL_KEY - hash_count);
         //print 10 error key
         for(i=0, j=0; i< MODHASH_TOTAL_KEY; i++){
             if(keys_flag[i] == 0){
-                log_error("error: key '%d' has no valid backend.\n",i);
+                log_error("error: key '%d' has no valid backend.",i);
                 j++;
             }
             if(j>10)
