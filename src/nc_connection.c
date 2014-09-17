@@ -393,7 +393,7 @@ conn_sendv(struct conn *conn, struct array *sendv, size_t nsend)
     ASSERT(conn->send_ready);
 
     for (;;) {
-    	for (size_t ii=0;ii<sendv->nelem;ii++) {
+    	for (ii=0;ii<sendv->nelem;ii++) {
     		p = (struct iovec *) sendv->elem + ii;
     		 log_debug(LOG_VERB, "sendv on sd %d: len=%d  content=<%.*s>",
     		                  conn->sd, p->iov_len, p->iov_len, (char *)p->iov_base);
