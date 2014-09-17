@@ -426,6 +426,7 @@ static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struc
 
 	mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
 	if (msg->pos == mbuf->last) {
+		rsp_put(msg);
 		return NC_OK;
 	}
 
@@ -636,8 +637,8 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	int mbuflen;
 
 	unsigned int redirect_msg_type;
-	struct string redirect_msg_1 = string("-NOAUTH"); //-KEY_TRANSFERING
-	struct string redirect_msg_2 = string("-ERR wrong number of arguments"); //-BUCKET_TRANS_DONE
+	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
+	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
 
 	//redirect msg which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR) {
@@ -712,8 +713,8 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	c_conn = pmsg->owner;
 
-	req_redirect(ctx, c_conn, pmsg); //wrapper of req_forward
 	redirect_splitrsp(ctx, conn, msg);
+	req_redirect(ctx, c_conn, pmsg); //wrapper of req_forward
 	return true;
 }
 
