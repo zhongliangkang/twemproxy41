@@ -656,13 +656,13 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	//check buf->pos
 	buf = STAILQ_FIRST(&msg->mhdr);
-	if ((buf->last - buf->pos) == redirect_msg_1.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_1.data, redirect_msg_1.len)) {
+	if ((buf->last - buf->pos) >= redirect_msg_1.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_1.data, redirect_msg_1.len)) {
 		redirect_msg_type = 0;
 		msg->owner->err = 0; //reset the error to 0
 
 		log_debug(LOG_VVERB, "redirect match type1 %.*s , length: %d",
 				redirect_msg_1.len, buf->pos, (size_t) (buf->pos - buf->start) );
-	} else if ((buf->last - buf->pos) == redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
+	} else if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
 		redirect_msg_type = 1;
 		msg->owner->err = 0; //reset the error to 0
 		log_debug(LOG_VVERB, "redirect match type2 %.*s, length: %d",

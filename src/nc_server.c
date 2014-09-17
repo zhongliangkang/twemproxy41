@@ -798,18 +798,20 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
 
 
     	log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status is %d", keylen,
-    	              key, pool->dist_type, transfer_status);
+    	              key, pool->dist_type, msg->transfer_status);
     }
 
      /*REDIRECT: CLIENT->PROXY->OLDSERERR->PROXY-(4)->NEWSERVER->PROXY
       * try to update continuum's status
       * */
 
-    if ( 1 == msg->redirect  && 1 == msg->redirect_type ) {
-    	uint32_t hash = server_pool_hash(pool, key, keylen);
-    	modhash_bucket_set_status (pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED);
-    	log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d", keylen,
-    	    	              key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
+    if ( 1 == msg->redirect) {
+    	if (msg->redirect_type == 1) {
+			uint32_t hash = server_pool_hash(pool, key, keylen);
+			modhash_bucket_set_status (pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED);
+			log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d", keylen,
+								  key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
+    	}
     }
 
 
@@ -1717,20 +1719,11 @@ rstatus_t server_check_hash_keys(struct server_pool *sp) {
 	keys_flag = nc_alloc(sizeof(bool) * MODHASH_TOTAL_KEY);
 	if (! keys_flag) {
 		return NC_ERROR;
-	} else {
-		log_debug(LOG_VERB, "server_check_hash_keys malloc %d success", sizeof(bool) * MODHASH_TOTAL_KEY);
 	}
 
-	memset(keys_flag, '0', sizeof(bool) * MODHASH_TOTAL_KEY);
+	memset(keys_flag, false, sizeof(bool) * MODHASH_TOTAL_KEY);
 
 	n_server = array_n(&sp->server);
-	log_debug(LOG_VERB, "server_check_hash_keys n_server %d", n_server);
-
-	//int old_server_idx = -1;
-	for (server_index = 0; server_index < n_server; server_index++) {
-		struct server *s = (struct server *) array_get(&sp->server, server_index);
-		log_debug(LOG_VERB, "server_check_hash_keys add hello world %s", s->pname.data);
-	}
 	hash_count = 0;
 
 	for (i = 0; i < n_server; i++) {
@@ -1745,7 +1738,7 @@ rstatus_t server_check_hash_keys(struct server_pool *sp) {
 				//will occur a bus error if a printf
 			} else {
 				// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
-				//log_error("error: hash key '%d' has more than one status is 1!\n",j);
+				log_error("error: hash key '%d' has more than one status is 1!\n",j);
 				goto err;
 			}
 		}

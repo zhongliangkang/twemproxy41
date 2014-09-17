@@ -188,10 +188,10 @@ modhash_update(struct server_pool *pool)
 
     log_debug(LOG_VERB, "updated pool %"PRIu32" '%.*s' with %"PRIu32" of "
               "%"PRIu32" servers live in %"PRIu32" slots and %"PRIu32" "
-              "active points in %"PRIu32" slots", pool->idx,
+              "active points in %"PRIu32" slots poolstatus %d status-2-slots %d", pool->idx,
               pool->name.len, pool->name.data, nlive_server, nserver,
               pool->nserver_continuum, pool->ncontinuum,
-              (pool->nserver_continuum + continuum_addition) * points_per_server);
+              (pool->nserver_continuum + continuum_addition) * points_per_server, pool->status, pointer_counter_status2);
 
 
     return NC_OK;
@@ -223,7 +223,7 @@ modhash_dispatch_newserver(struct continuum *continuum, uint32_t ncontinuum, uin
 
     c = continuum + hash % ncontinuum;
     ASSERT( c->status > 0  );
-    log_debug(LOG_VERB, "NEW choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
+    log_debug(LOG_VERB, "NEW choose No. %d continuum,hash:%u ,ncontinuum: %u",hash%ncontinuum,hash,ncontinuum);
 
     return c->newindex;
 }
@@ -238,7 +238,7 @@ modhash_transfer_status (struct continuum *continuum, uint32_t ncontinuum, uint3
 
     c = continuum + hash % ncontinuum;
     ASSERT(c->status > 0);
-    log_debug(LOG_VERB, "choose No. %d continuum,hash:%u ,ncontinuum: %u \n",hash%ncontinuum,hash,ncontinuum);
+    log_debug(LOG_VERB, "modhash_transfer_status No. %d continuum,hash:%u ,ncontinuum: %u status:%d",hash%ncontinuum,hash,ncontinuum,c->status);
     return (c->status );
 }
 
@@ -260,6 +260,6 @@ modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uin
     old_status = c->status;
     c->status = new_status;
 
-    log_debug(LOG_VERB, "update No. %d continuum,hash:%u ,ncontinuum: %u status %d->%d \n",hash%ncontinuum,hash,ncontinuum, old_status, new_status);
+    log_debug(LOG_VERB, "update No. %d continuum,hash:%u ,ncontinuum: %u status %d->%d",hash%ncontinuum,hash,ncontinuum, old_status, new_status);
     return (true);
 }
