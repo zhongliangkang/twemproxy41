@@ -242,11 +242,10 @@ modhash_transfer_status (struct continuum *continuum, uint32_t ncontinuum, uint3
     return (c->status );
 }
 
-/* update continuum
-	FIXME: add mutex
+/* update continuum, please add a pool->mutex before call me
 */
 rstatus_t
-modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uint32_t hash, int new_status)
+modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uint32_t hash, int new_status, int require_status)
 {
     struct continuum *c;
     int old_status;
@@ -258,8 +257,11 @@ modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uin
     ASSERT(c->status > 0);
     ASSERT(new_status > 0);
     old_status = c->status;
-    c->status = new_status;
+    if (require_status > -1 && old_status == require_status) {
+    	log_error (LOG_VERB, "modhash_bucket_set_status set slot %d status to %d failed, may be a adddone is executed", hash % ncontinuum, new_status);
+    	return NC_ERROR;
+    }
 
-    log_debug(LOG_VERB, "update No. %d continuum,hash:%u ,ncontinuum: %u status %d->%d",hash%ncontinuum,hash,ncontinuum, old_status, new_status);
-    return (true);
+    c->status = new_status;
+    return (NC_OK);
 }

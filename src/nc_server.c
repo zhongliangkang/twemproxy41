@@ -775,7 +775,6 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
     rstatus_t status;
     struct server *server;
     struct conn *conn;
-    uint32_t transfer_status = 1;
 
     status = server_pool_update(pool);
     if (status != NC_OK) {
@@ -805,14 +804,23 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
       * try to update continuum's status
       * */
 
-    if ( 1 == msg->redirect) {
-    	if (msg->redirect_type == 1) {
+	if (1 == msg->redirect) {
+		if (msg->redirect_type == 1) {
+			pthread_mutex_lock(&pool->mutex);
+			log_error("pthread_mutex_lock for modhash_bucket_set_status");
 			uint32_t hash = server_pool_hash(pool, key, keylen);
-			modhash_bucket_set_status (pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED);
-			log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d", keylen,
-								  key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
-    	}
-    }
+			status = modhash_bucket_set_status(pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED, CONTINUUM_STATUS_TRANSING);
+			pthread_mutex_unlock(&pool->mutex);
+			log_error("pthread_mutex_unlock for modhash_bucket_set_status");
+			if (status == NC_OK) {
+				log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d succ", keylen,
+						key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
+			} else {
+				log_error( "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d failed", keylen, key, pool->dist_type,
+						CONTINUUM_STATUS_TRANSED);
+			}
+		}
+	}
 
 
     /* reload server config here */
@@ -1714,7 +1722,7 @@ rstatus_t server_check_hash_keys(struct server_pool *sp) {
 	bool * keys_flag;
 	uint32_t n_server, i, hash_count;
 	int j;
-	uint32_t server_index;
+
 
 	keys_flag = nc_alloc(sizeof(bool) * MODHASH_TOTAL_KEY);
 	if (! keys_flag) {
