@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <assert.h>
 
 static const uint16_t crc16tab[256] = {
@@ -155,21 +156,21 @@ hash_fnv1a_64(const char *key, size_t key_length)
 
 int main(int argc, char **argv)
 {
-    uint32_t fnv64 = 0;
     int i;
+    uint32_t fnv64 ;
     char buf[1024];
 
      if (argc >= 2 ) {
-    	for (i=0;i<argc;i++) {
+    	for (i=1;i<argc;i++) {
     		fnv64 = hash_fnv1a_64 (argv[i], strlen(argv[i]));
-    		printf("%s : fnv64 %u slot %d \n", argv[i], fnv64, (fnv64 %  420000));
+    		printf("%s fnv64 %u slot %d\n", argv[i], fnv64, (fnv64 %  420000));
     	}
     } else {
     	while (fgets(buf, sizeof(buf), stdin)) {
     		if(buf[strlen(buf) - 1] == '\n')
     			buf[strlen(buf) - 1] = '\0';   // 去掉换行符
     		fnv64 = hash_fnv1a_64 (buf, strlen(buf));
-    		printf("%s : fnv64 %u slot %d \n", buf, fnv64, (fnv64 %  420000));
+    		printf("%s fnv64 %u slot %d\n", buf, fnv64, (fnv64 %  420000));
     	}
     }
 
