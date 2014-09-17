@@ -257,8 +257,8 @@ modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uin
     ASSERT(c->status > 0);
     ASSERT(new_status > 0);
     old_status = c->status;
-    if (require_status > -1 && old_status == require_status) {
-    	log_error (LOG_VERB, "modhash_bucket_set_status set slot %d status to %d failed, may be a adddone is executed", hash % ncontinuum, new_status);
+    if (require_status > -1 && old_status != require_status) {
+    	log_error ( "modhash_bucket_set_status set slot %d status to %d failed, may be a adddone is executed", hash % ncontinuum, new_status);
     	return NC_ERROR;
     }
 
