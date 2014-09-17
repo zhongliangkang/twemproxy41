@@ -1239,6 +1239,8 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		return NC_ERROR;
 	}
 
+	pthread_mutex_lock(&pool->mutex);
+    log_error("pthread_mutex_lock for migrate segment");
 	//int idx  = -1;
 	nserver = array_n(&pool->server);
 	for (server_index = 0; server_index < nserver; server_index++) {
@@ -1303,6 +1305,8 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 			log_debug(LOG_VERB, "add done %s %d %d %d => %s", s->name.data, s->status, s->seg_start , s->seg_end, s->pname.data);
 		}
 	}
+	pthread_mutex_unlock(&pool->mutex);
+	log_error("pthread_mutex_unlock for migrate segment");
 
 	if (rt != NC_OK) {
 
