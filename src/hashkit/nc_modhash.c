@@ -44,7 +44,9 @@ modhash_update(struct server_pool *pool)
 
     uint32_t pointer_counter_status2 ; /* #pointers on continuum of transfer status */
     uint32_t pool_transfer_status = 0;
+    uint32_t pool_old_status ;
     bool first_init = false;       /* is first_init ?*/
+    pool_old_status =  pool->status;
 
 //    bool    keys_flag[MODHASH_TOTAL_KEY];
  //   memset(keys_flag, 0, sizeof(keys_flag));
@@ -183,8 +185,12 @@ modhash_update(struct server_pool *pool)
    		pool_transfer_status = 2;
     }
 
-    pool->ntrans_continuum = pointer_counter_status2;
-    pool->status = pool_transfer_status;
+	pool->ntrans_continuum = pointer_counter_status2;
+	pool->status = pool_transfer_status;
+
+	if (pool_old_status != pool_transfer_status) {
+		log_error("pool %.*s status changed from %d to %d", pool->name.len, pool->name.data, pool_old_status, pool_transfer_status);
+	}
 
     log_debug(LOG_VERB, "updated pool %"PRIu32" '%.*s' with %"PRIu32" of "
               "%"PRIu32" servers live in %"PRIu32" slots and %"PRIu32" "
