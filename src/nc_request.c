@@ -699,7 +699,7 @@ void
 req_redirect (struct context *ctx, struct conn *c_conn, struct msg *msg)
 {
 
- 	 log_debug(LOG_VVERB, "redirect msg %p from old-server to new-server\n", msg);
+ 	 log_debug(LOG_VVERB, "redirect msg %p from old-server to new-server", msg);
 	 req_forward(ctx, c_conn, msg);
 }
 

@@ -800,25 +800,23 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
     	              key, pool->dist_type, msg->transfer_status);
     }
 
-     /*REDIRECT: CLIENT->PROXY->OLDSERERR->PROXY-(4)->NEWSERVER->PROXY
-      * try to update continuum's status
-      * */
+	/*REDIRECT: CLIENT->PROXY->OLDSERERR->PROXY-(4)->NEWSERVER->PROXY
+	 * try to update continuum's status
+	 * */
 
-	if (1 == msg->redirect) {
-		if (msg->redirect_type == 1) {
-			pthread_mutex_lock(&pool->mutex);
-			log_error("pthread_mutex_lock for modhash_bucket_set_status");
-			uint32_t hash = server_pool_hash(pool, key, keylen);
-			status = modhash_bucket_set_status(pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED, CONTINUUM_STATUS_TRANSING);
-			pthread_mutex_unlock(&pool->mutex);
-			log_error("pthread_mutex_unlock for modhash_bucket_set_status");
-			if (status == NC_OK) {
-				log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d succ", keylen,
-						key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
-			} else {
-				log_error( "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d failed", keylen, key, pool->dist_type,
-						CONTINUUM_STATUS_TRANSED);
-			}
+	if (1 == msg->redirect && msg->redirect_type == REDIRECT_TYPE_BUCKET_TRANS_DONE) {
+		pthread_mutex_lock(&pool->mutex);
+		log_error("pthread_mutex_lock for modhash_bucket_set_status");
+		uint32_t hash = server_pool_hash(pool, key, keylen);
+		status = modhash_bucket_set_status(pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED, CONTINUUM_STATUS_TRANSING);
+		pthread_mutex_unlock(&pool->mutex);
+		log_error("pthread_mutex_unlock for modhash_bucket_set_status");
+		if (status == NC_OK) {
+			log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d succ", keylen,
+					key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
+		} else {
+			log_error("modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d failed", keylen, key, pool->dist_type,
+					CONTINUUM_STATUS_TRANSED);
 		}
 	}
 

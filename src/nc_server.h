@@ -75,6 +75,10 @@ typedef uint32_t (*hash_t)(const char *, size_t);
 #define CONTINUUM_STATUS_TRANSING 2   /* return old, try to redirect to new */
 #define CONTINUUM_STATUS_TRANSED  3   /* return new */
 
+#define REDIRECT_TYPE_KEY_TRANSFERING  0   /* return old */
+#define REDIRECT_TYPE_BUCKET_TRANS_DONE 1   /* return old, try to redirect to new */
+
+
 struct continuum {
     uint32_t index;  /* server index */
     uint32_t value;  /* hash value */

@@ -426,7 +426,7 @@ static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struc
 
 	mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
 	if (msg->pos == mbuf->last) {
-		rsp_put(msg);
+		conn->recv_done(ctx, conn, msg, NULL);
 		return NC_OK;
 	}
 
@@ -638,7 +638,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	unsigned int redirect_msg_type;
 	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
-	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
+	struct string redirect_msg_2 = string("-ERR wrong number"); //-BUCKET_TRANS_DONE
 
 	//redirect msg which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR) {
@@ -657,24 +657,25 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	//check buf->pos
 	buf = STAILQ_FIRST(&msg->mhdr);
-	if ((buf->last - buf->pos) >= redirect_msg_1.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_1.data, redirect_msg_1.len)) {
-		redirect_msg_type = 0;
+	if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
+			redirect_msg_type = REDIRECT_TYPE_BUCKET_TRANS_DONE;
+			msg->owner->err = 0; //reset the error to 0
+			log_debug(LOG_VVERB, "redirect match type2 %.*s, length: %d",
+					redirect_msg_2.len, buf->pos , buf->pos, (ssize_t) (buf->pos - buf->start) );
+	} else	if ((buf->last - buf->pos) >= redirect_msg_1.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_1.data, redirect_msg_1.len)) {
+		redirect_msg_type = REDIRECT_TYPE_KEY_TRANSFERING;
 		msg->owner->err = 0; //reset the error to 0
-
 		log_debug(LOG_VVERB, "redirect match type1 %.*s , length: %d",
 				redirect_msg_1.len, buf->pos, (size_t) (buf->pos - buf->start) );
-	} else if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
-		redirect_msg_type = 1;
-		msg->owner->err = 0; //reset the error to 0
-		log_debug(LOG_VVERB, "redirect match type2 %.*s, length: %d",
-				redirect_msg_2.len, buf->pos , buf->pos, (ssize_t) (buf->pos - buf->start) );
 
 	} else {
 		//a normal error, no direct
 		return false;
 	}
 
-	ASSERT(pmsg != NULL && pmsg->peer == NULL); ASSERT(pmsg->request && !pmsg->done);
+	ASSERT(pmsg != NULL && pmsg->peer == NULL);
+	ASSERT(pmsg->request && !pmsg->done);
+	/* DROP OLD-SERVER RESPONSE*/
 	conn->dequeue_outq(ctx, conn, pmsg);
 
 	log_debug(LOG_VVERB, "redirect msg %p id %"PRIu64"", msg, msg->id);
@@ -713,7 +714,10 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	c_conn = pmsg->owner;
 
+	//try to parse next response in msg
 	redirect_splitrsp(ctx, conn, msg);
+
+	//redirect request msg
 	req_redirect(ctx, c_conn, pmsg); //wrapper of req_forward
 	return true;
 }
@@ -733,8 +737,9 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
     msg->parser(msg);
 
 
-    //the msg redirect, skip parsed
+    //if client's request and  redirect
     if (conn->client && msg->request && msg->redirect == 1 ) {
+    	log_error("NOREACH: client request which redirect mode");
      	status = NC_OK;
      	return conn->err != 0 ? NC_ERROR : status;
     }
