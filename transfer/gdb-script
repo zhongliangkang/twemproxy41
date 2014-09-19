@@ -1,0 +1,4 @@
+file ./examples/transfer
+set args   127.0.0.1:30000 127.0.0.1:30001 1 2
+br redisBufferWrite
+run

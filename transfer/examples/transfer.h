@@ -1,0 +1,73 @@
+/*
+ * Copyright (c) 2009-2011, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010-2011, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#ifndef __TRANSFER_H
+#define __TRANSFER_H
+#include <stdio.h> /* for size_t */
+#include <stdarg.h> /* for va_list */
+#include <sys/time.h> /* for struct timeval */
+#include <inttypes.h>
+#include <stdint.h>
+#include <hiredis.h>
+
+#define MODHASH_TOTAL_KEY 420000
+#define REDIS_KEYTYPE_LEN 32
+
+#define REDIS_KEYTYPE_STRING 1
+#define REDIS_KEYTYPE_LIST 2
+#define REDIS_KEYTYPE_HASH 3
+#define REDIS_KEYTYPE_SET 4
+#define REDIS_KEYTYPE_ZSET 5
+#define REDIS_KEYTYPE_NONE 999
+#define REDIS_KEYTYPE_UNKNOWN 999
+
+typedef struct redis_info {
+	char host[16];
+	uint16_t port;
+	redisContext * rd; //redis descriptor
+	int transing_bucket; //bucket is transing
+} redisInfo;
+
+int transfer_bucket(redisInfo * from, redisInfo * to, int bucketid);
+int conn_redis(redisInfo * redis, char *hostname, uint16_t port);
+int trans_string(redisInfo *src, redisInfo *dst, char * keyname);
+
+void print_reply_info(char *cmd, redisReply * reply);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
