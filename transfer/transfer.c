@@ -56,7 +56,7 @@ void print_reply_info(char *cmd, redisReply * reply) {
 	}
 
 }
-
+/*
 int intlen(int start) {
 
     int end = 1;
@@ -68,6 +68,7 @@ int intlen(int start) {
 
     return end;
 }
+*/
 
 /*
  * trans_string
@@ -284,7 +285,7 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
 		}
 		return REDIS_ERR;
 	}
-	printf("connect redis %s:%d succ %p\n", hostname, port, redis->rd);
+	printf("connect redis %s:%d succ %p\n", hostname, port, (void *)redis->rd);
 	redis->port = port;
 	strncpy(redis->host, hostname, sizeof(redis->host));
 	return REDIS_OK;

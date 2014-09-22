@@ -81,7 +81,6 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port);
 int trans_string(redisInfo *src, redisInfo *dst, char * keyname);
 
 void print_reply_info(char *cmd, redisReply * reply);
-void intlen (int start);
 
 
 #ifdef __cplusplus
