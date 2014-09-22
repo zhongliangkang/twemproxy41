@@ -34,6 +34,8 @@
 #include <stdio.h> /* for size_t */
 #include <stdarg.h> /* for va_list */
 #include <sys/time.h> /* for struct timeval */
+#include <sys/uio.h>
+
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 11
@@ -162,6 +164,21 @@ int redisvFormatCommand(char **target, const char *format, va_list ap);
 int redisFormatCommand(char **target, const char *format, ...);
 int redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);
 
+/*
+ * *4\r\n$7\r\nrestore\r\n$ttllen\r\nttl\r\n$%d\r\n%d\r\n$%d\r\n
+ * \set
+ */
+typedef struct restoreCommand {
+	char * set ;
+	size_t set_len;
+	size_t set_size;
+	char * content; //cmd_content is no malloc
+	size_t content_len;
+	char * end ;
+	size_t end_len;
+	size_t end_size;
+} restoreCommand;
+
 /* Context for a connection to Redis */
 typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
@@ -170,6 +187,8 @@ typedef struct redisContext {
     int flags;
     char *obuf; /* Write buffer */
     size_t obuf_len; /* support resotre*/
+
+    restoreCommand restorecmd;
     redisReader *reader; /* Protocol reader */
 } redisContext;
 

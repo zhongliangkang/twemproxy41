@@ -998,6 +998,13 @@ static redisContext *redisContextInit(void) {
     if (c == NULL)
         return NULL;
 
+    c->restorecmd.content = NULL;
+    c->restorecmd.end = NULL;
+    c->restorecmd.set = NULL;
+    c->restorecmd.end_size = 0;
+    c->restorecmd.set_size = 0;
+
+
     c->err = 0;
     c->errstr[0] = '\0';
     c->obuf = sdsempty();
@@ -1014,6 +1021,15 @@ void redisFree(redisContext *c) {
         sdsfree(c->obuf);
     if (c->reader != NULL)
         redisReaderFree(c->reader);
+
+    if (c->restorecmd.content) {
+    	free (c->restorecmd.content);
+    }
+
+    if (c->restorecmd.set) {
+      	free (c->restorecmd.set);
+    }
+
     free(c);
 }
 
@@ -1218,25 +1234,141 @@ int redisGetReplyFromReader(redisContext *c, void **reply) {
 void * redisRestoreCommand(redisContext *c, char *key, int ttl, char * buf, size_t buflen) {
 	void *reply;
 	int len, n;
-	char cmd[1024];
-	int ttllen = 1;
+	char cmd[1024]; //TODO use sendv to avoid alloc too may data
+	int ttllen = intlen (ttl);
+	int keylen;
+	int cmd_set_len = 0;
+/*
+ *  struct iovec iov[3];
+    iov[0].iov_base = part1;
+    iov[0].iov_len = strlen(part1);
+    iov[1].iov_base = part2;
+    iov[1].iov_len = strlen(part2);
+    iov[2].iov_base = part3;
+    iov[2].iov_len = strlen(part3);
+    writev(1,iov,3);
+ */
+
 //	c->obuf
 // *3\r\n$7\r\nrestore\r\n$3\r\naaa\r\n$1\r\n0\r\n
-	//TODO ttllen > 1
-	n = sprintf(cmd, "*4\r\n$7\r\nrestore\r\n$%d\r\n%s\r\n$%d\r\n%d\r\n$%d\r\n", strlen(key), key, ttllen, ttl, buflen), memcpy(cmd + n, buf, buflen);
-	memcpy(cmd + n + buflen, "\r\n", 2);
-	len = n + buflen + 2;
 
-	if (__redisAppendCommand(c, cmd, len) != REDIS_OK) {
-		return NULL;
+	keylen = strlen(key);
+
+	cmd_set_len = keylen + ttllen + 64;
+
+	if (c->restorecmd.set_size == 0) {
+		c->restorecmd.set = malloc(cmd_set_len);
+		if (! c->restorecmd.set) {
+			//TODO MALLOC FAILED
+		}
+		c->restorecmd.set_size = cmd_set_len;
+
+	} else if (c->restorecmd.set_size < cmd_set_len) {
+		c->restorecmd.set = realloc(c->restorecmd.set, cmd_set_len);
+		if (!c->restorecmd.set) {
+			//TODO MALLOC FAILED
+		}
+		c->restorecmd.set_size= cmd_set_len;
 	}
 
+	n = sprintf(c->restorecmd.set, "*4\r\n$7\r\nrestore\r\n$%d\r\n%s\r\n$%d\r\n%d\r\n$%d\r\n", strlen(key), key, ttllen, ttl, buflen);
+	c->restorecmd.set_len = n;
+
+	c->restorecmd.content = buf;
+	c->restorecmd.content_len = buflen;
+
+
+
+	if (c->restorecmd.set_size == 0) {
+		c->restorecmd.end = malloc(3);
+		if (! c->restorecmd.end) {
+			//TODO MALLOC FAILED
+		}
+		c->restorecmd.end_size = 3;
+		c->restorecmd.end_len = 3;
+		snprintf (c->restorecmd.end, 3, "\r\n");
+	}
+
+
 	if (c->flags & REDIS_BLOCK) {
-		if (redisGetReply(c, &reply) != REDIS_OK)
+		if (redisGetRestoreReply(c, &reply) != REDIS_OK)
 			return NULL;
 		return reply;
 	}
 	return NULL;
+}
+
+int redisGetRestoreReply(redisContext *c, void **reply) {
+    int wdone = 0;
+    void *aux = NULL;
+
+    /* Try to read pending replies */
+    if (redisGetReplyFromReader(c,&aux) == REDIS_ERR)
+        return REDIS_ERR;
+
+    /* For the blocking context, flush output buffer and read reply */
+    if (aux == NULL && c->flags & REDIS_BLOCK) {
+        /* Write until done */
+        do {
+            if (redisBufferWriteV(c,&wdone) == REDIS_ERR)
+                return REDIS_ERR;
+        } while (!wdone);
+
+        /* Read until there is a reply */
+        do {
+            if (redisBufferRead(c) == REDIS_ERR)
+                return REDIS_ERR;
+            if (redisGetReplyFromReader(c,&aux) == REDIS_ERR)
+                return REDIS_ERR;
+        } while (aux == NULL);
+    }
+
+    /* Set reply object */
+    if (reply != NULL) *reply = aux;
+    return REDIS_OK;
+}
+
+
+/* Write the output buffer to the socket.
+ *
+ */
+int redisBufferWriteV (redisContext *c, int *done) {
+    int nwritten;
+    struct iovec iov[3];
+
+    /* Return early when the context has seen an error. */
+    if (c->err)
+        return REDIS_ERR;
+
+    /*   */
+     if (c->restorecmd.content_len == 0 || c->restorecmd.set_len == 0 || c->restorecmd.end_len == 0
+    		 || ! c->restorecmd.content || ! c->restorecmd.set || !c->restorecmd.end)
+         return REDIS_ERR;
+
+
+ iov[0].iov_base= c->restorecmd.set;
+ iov[0].iov_len = c->restorecmd.set_len;
+ iov[1].iov_base= c->restorecmd.content;
+ iov[1].iov_len= c->restorecmd.content_len;
+ iov[2].iov_base= c->restorecmd.end;
+ iov[2].iov_len= c->restorecmd.end_len;
+
+	nwritten = write(c->fd, iov, 3);
+	if (nwritten == -1) {
+		if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
+			/* Try again later */
+		} else {
+			__redisSetError(c,REDIS_ERR_IO,NULL);
+			return REDIS_ERR;
+		}
+	} else if (nwritten > 0) {
+		//TODO
+
+	}
+
+
+    *done = 1;
+    return REDIS_OK;
 }
 
 int redisGetReply(redisContext *c, void **reply) {
