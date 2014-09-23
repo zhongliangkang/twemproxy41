@@ -649,7 +649,11 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	//check peer msg
 	pmsg = TAILQ_FIRST(&conn->omsg_q);
-	if (pmsg->transfer_status == MSG_STATUS_TRANSING && !pmsg->redirect) {
+	if (!pmsg) {
+	   log_error("a empty msg fond %s\n", msg->pos);
+	   return false;
+	}
+	if ((pmsg->transfer_status == MSG_STATUS_TRANSING) && !pmsg->redirect) {
 		// will go on, for more readable
 	} else {
 		return false;

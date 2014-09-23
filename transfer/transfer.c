@@ -24,6 +24,11 @@ void print_reply_info(char *cmd, redisReply * reply) {
 	 #define REDIS_REPLY_ERROR 6
 	 */
 //	assert(reply->type <= REDIS_REPLY_ERROR );
+//
+	if (! cmd || ! reply) {
+		printf ("try to printf a empty cmd or reply\n");	
+		return ;
+	}	
 	printf("cmd:'%s'\t return len: %d type:%d %s str:%s elem:%zd\n", cmd, reply->len, reply->type,
 			redis_reply_name[reply->type], reply->str, reply->elements);
 
@@ -137,11 +142,12 @@ The command returns -1 if the key exists but has no associated expire.
 	}
 	//set to dst
 	if (reply->type == REDIS_REPLY_STRING) {
-	//	setcmd = malloc(reply->len + 1024); //FIXME
-	//	int n = snprintf(setcmd, 100, "restore %s %d ", keyname, ttl);
+		setcmd = malloc(reply->len + 1024); //FIXME
+		int n = snprintf(setcmd, 100, "restore %s %d ", keyname, ttl);
 	//	memcpy(setcmd + n , reply->str, reply->len);
 		//reply_set = redisCommand(dst->rd, setcmd);
 		reply_set = redisRestoreCommand (dst->rd, keyname, ttl,reply->str, reply->len);
+
 		print_reply_info(setcmd, reply_set);
 		freeReplyObject(reply_set);
 	} else {

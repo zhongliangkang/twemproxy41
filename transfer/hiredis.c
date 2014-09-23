@@ -1022,8 +1022,8 @@ void redisFree(redisContext *c) {
     if (c->reader != NULL)
         redisReaderFree(c->reader);
 
-    if (c->restorecmd.content) {
-    	free (c->restorecmd.content);
+    if (c->restorecmd.end) {
+    	free (c->restorecmd.end);
     }
 
     if (c->restorecmd.set) {
@@ -1279,13 +1279,13 @@ void * redisRestoreCommand(redisContext *c, char *key, int ttl, char * buf, size
 
 
 
-	if (c->restorecmd.set_size == 0) {
+	if (c->restorecmd.end_size == 0) {
 		c->restorecmd.end = malloc(3);
 		if (! c->restorecmd.end) {
 			//TODO MALLOC FAILED
 		}
 		c->restorecmd.end_size = 3;
-		c->restorecmd.end_len = 3;
+		c->restorecmd.end_len = 2;
 		snprintf (c->restorecmd.end, 3, "\r\n");
 	}
 
@@ -1353,7 +1353,7 @@ int redisBufferWriteV (redisContext *c, int *done) {
  iov[2].iov_base= c->restorecmd.end;
  iov[2].iov_len= c->restorecmd.end_len;
 
-	nwritten = write(c->fd, iov, 3);
+	nwritten = writev(c->fd, iov, 3);
 	if (nwritten == -1) {
 		if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
 			/* Try again later */

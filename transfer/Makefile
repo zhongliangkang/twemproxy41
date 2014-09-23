@@ -7,7 +7,7 @@ OBJ=net.o hiredis.o sds.o async.o
 #nc_log.o nc_util.o nc_string.o
 #EXAMPLES=hiredis-example hiredis-example-libevent hiredis-example-libev transfer
 EXAMPLES=hiredis-example 
-TESTS=transfer
+TESTS=transfer create_key
 LIBNAME=libhiredis
 
 HIREDIS_MAJOR=0
@@ -113,8 +113,11 @@ examples: $(EXAMPLES)
 hiredis-test: test.o $(STLIBNAME)
 	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
 
+create_key: create_key.o $(STLIBNAME)
+	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
+
 transfer: transfer.o $(STLIBNAME) 
-	$(CC) -o $@ $(REAL_LDFLAGS) -I. $< $(STLIBNAME) 
+	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
 
 test: hiredis-test
 	./hiredis-test
