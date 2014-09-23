@@ -167,6 +167,7 @@ The command returns -1 if the key exists but has no associated expire.
 	}
 	freeReplyObject(reply);
 
+	snprintf(cmd, 100, "rctransendkey %s", keyname);
 	//TODO rclock key at src
 	reply = redisCommand(src->rd, cmd);
 	if (!reply) {
@@ -189,10 +190,26 @@ int transfer_bucket(redisInfo * src, redisInfo * dst, int bucketid) {
 	redisReply *keys; // store keys of bucket;
 	redisReply *type_reply ; //store type of transing key;
 
+    n = snprintf(cmd, 1024, "rctransserver");
+    type_reply = redisCommand(src->rd, cmd);
+    print_reply_info(cmd, type_reply);
+	freeReplyObject(type_reply);
+    type_reply = redisCommand(dst->rd, cmd);
+    print_reply_info(cmd, type_reply);
+	freeReplyObject(type_reply);
+
+    n = snprintf(cmd, 1024, "rctransbegin %d %d", bucketid, bucketid);
+    type_reply = redisCommand(src->rd, cmd);
+    print_reply_info(cmd, type_reply);
+	freeReplyObject(type_reply);
+    type_reply = redisCommand(dst->rd, cmd);
+    print_reply_info(cmd, type_reply);
+	freeReplyObject(type_reply);
+
 
 	char keytype_name[REDIS_KEYTYPE_LEN];
 	uint32_t keytype;
-	snprintf(cmd, 1024, "keys *");
+	snprintf(cmd, 1024, "hashkeys %d *", bucketid);
 	keys = redisCommand(src->rd, cmd);
 	keys_len = keys->elements;
 //	print_reply_info (cmd, keys);
@@ -204,6 +221,14 @@ int transfer_bucket(redisInfo * src, redisInfo * dst, int bucketid) {
 	}
 
 	freeReplyObject(keys);
+
+    n = snprintf(cmd, 1024, "rctransend %d %d", bucketid, bucketid);
+    type_reply = redisCommand(src->rd, cmd);
+    print_reply_info(cmd, type_reply);
+	freeReplyObject(type_reply);
+    type_reply = redisCommand(dst->rd, cmd);
+    print_reply_info(cmd, type_reply);
+	freeReplyObject(type_reply);
 
 	return REDIS_OK;
 /*
@@ -316,7 +341,7 @@ int main(int argc, char **argv) {
 	redisReply *reply;
 
 	if (argc != 5) {
-		printf  ("usage: transfer src dst seg_start seg_end");
+		printf  ("usage: transfer src dst seg_start seg_end\n\n");
 		exit(1);
 	}
 
