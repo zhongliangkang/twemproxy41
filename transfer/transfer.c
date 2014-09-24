@@ -106,6 +106,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname) {
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 	//TODO rclock ok?
 
@@ -165,6 +166,7 @@ The command returns -1 if the key exists but has no associated expire.
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 
 	snprintf(cmd, 100, "rctransendkey %s", keyname);
@@ -174,6 +176,7 @@ The command returns -1 if the key exists but has no associated expire.
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 
 	return REDIS_OK;
@@ -190,10 +193,11 @@ int transfer_bucket(redisInfo * src, redisInfo * dst, int bucketid) {
 	redisReply *keys; // store keys of bucket;
 	redisReply *type_reply ; //store type of transing key;
 
-    n = snprintf(cmd, 1024, "rctransserver");
+    n = snprintf(cmd, 1024, "rctransserver out");
     type_reply = redisCommand(src->rd, cmd);
     print_reply_info(cmd, type_reply);
 	freeReplyObject(type_reply);
+    n = snprintf(cmd, 1024, "rctransserver in");
     type_reply = redisCommand(dst->rd, cmd);
     print_reply_info(cmd, type_reply);
 	freeReplyObject(type_reply);
@@ -381,7 +385,9 @@ int main(int argc, char **argv) {
 	printf("PING: %s\n", reply->str);
 	freeReplyObject(reply);
 
-	transfer_bucket(&src, &dst, seg_start);
+    for( int idx = seg_start;  idx<= seg_end; idx++){
+        transfer_bucket(&src, &dst, idx);
+    }
 
 end:
 	if (src.rd)
