@@ -1205,6 +1205,8 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 	int dstsvr_idx = - 1;
 	int dstsvr_num = 0;
 	int dstsvr_num_badstatus = 0;
+	int srcsvr_idx = - 1;
+	int srcsvr_num = 0;
 
 	rt = NC_OK;
 	nserver = array_n(&pool->server);
@@ -1225,6 +1227,15 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 				return NC_ERROR;
 			}
 		}
+
+		if (s->status == 1 && (			tmpsvr.seg_start == s->seg_start || tmpsvr.seg_end == s->seg_end)) {
+
+			srcsvr_idx = (int ) server_index;
+			srcsvr_num  ++;;
+
+		}
+
+
 	}
 
 	if (dstsvr_num == 0) {
@@ -1233,6 +1244,10 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		return NC_ERROR;
 	} else 	if (dstsvr_num > 1) {
 		snprintf(result, STATS_RESULT_BUFLEN,"server '%s %d-%d %d' define too many times: %d",tmpsvr.name.data, tmpsvr.seg_start, tmpsvr.seg_end, tmpsvr.status,dstsvr_num);
+		log_error(result);
+		return NC_ERROR;
+	} else 	if (srcsvr_num <= 0) {
+		snprintf(result, STATS_RESULT_BUFLEN,"server '%s %d-%d %d' do not have a src svr",tmpsvr.name.data, tmpsvr.seg_start, tmpsvr.seg_end, tmpsvr.status);
 		log_error(result);
 		return NC_ERROR;
 	}
@@ -1261,30 +1276,31 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 			}
 
 		} else {
-
-			if (s->seg_start >= tmpsvr.seg_start && s->seg_end <= tmpsvr.seg_end) {
-				s->seg_start = 0;
-				s->seg_end = 0;
-				s->status = 0;
-				update = true;
-			}
-
-			else if (s->seg_start <= tmpsvr.seg_start && s->seg_end > tmpsvr.seg_start && s->seg_end < tmpsvr.seg_end) {
-				s->seg_end = tmpsvr.seg_start - 1;
-				s->status = 1;
-				if (s->seg_start > s->seg_end) {
-					s->status = 0;
-//					s->seg_start = 0;
-				}
-				update = true;
-			}
-
-			else if (s->seg_end >= tmpsvr.seg_end && s->seg_start >= tmpsvr.seg_start && s->seg_start < tmpsvr.seg_end) {
+			/*
+			 *  old  0-419999 1   ==> a+1 - 419999 1
+			 *  new  0-a      2   ==> 0   - a      1
+			 */
+			if (s->seg_start == tmpsvr.seg_start &&   tmpsvr.seg_end <= s->seg_end) {
 				s->seg_start = tmpsvr.seg_end + 1;
 				s->status = 1;
 				if (s->seg_start > s->seg_end) {
 					s->status = 0;
 				}
+				log_error ("s->seg_start <= tmpsvr.seg_start && s->seg_end > tmpsvr.seg_start && s->seg_end < tmpsvr.seg_end");
+				update = true;
+
+			}
+			/*
+			 *  old  0-419999 1   ==> 0 - a+1     1
+			 *  new  a-419999 2   ==> a - 419999   1
+			*/
+			else if (s->seg_end == tmpsvr.seg_end && s->seg_start <= tmpsvr.seg_start ) {
+				s->seg_end = tmpsvr.seg_start - 1;
+				s->status = 1;
+				if (s->seg_start > s->seg_end) {
+					s->status = 0;
+				}
+				log_error ("s->seg_end == tmpsvr.seg_end && s->seg_start <= tmpsvr.seg_start");
 				update = true;
 			}
 		}
@@ -1300,7 +1316,7 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 
 			string_deinit(&s->pname);
 			string_copy(&s->pname, (uint8_t *)buf, (uint32_t)strlen(buf));
-			log_debug(LOG_VERB, "add done %s %d %d %d => %s", s->name.data, s->status, s->seg_start , s->seg_end, s->pname.data);
+			log_error ("add done %s %d %d %d => %s", s->name.data, s->status, s->seg_start , s->seg_end, s->pname.data);
 		}
 	}
 	pthread_mutex_unlock(&pool->mutex);
