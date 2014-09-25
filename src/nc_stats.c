@@ -899,10 +899,12 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 	 */
 
 	else if (!strcmp(cmd_p[0], "add") ) {
-		if (n_field != 6) {
+		if (n_field != 5) {
 			snprintf(output, STATS_RESULT_BUFLEN, "ERR: add command, bad argument\n");
 		} else {
-			rt = nc_stats_addCommand(st->p_sp, cmd_p[1], cmd_p[4], cmd_p[3], cmd_p[5], "2", result);
+			/*                       echo " 0 add  1 alpha 127.0.0.1:30002 pvz1 21-30  2" |nc  127.0.0.1 22222 */
+			/*  (void *sp, char *sp_name, char *inst, char* app, char *segs, char *status, char *result) */
+			rt = nc_stats_addCommand(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], "2", result);
 			if (NC_OK == rt) {
 				snprintf(output, STATS_RESULT_BUFLEN, "OK\n");
 			} else {
@@ -917,10 +919,10 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 	 * adddone, set status 2 to 1
 	 * */
 	else if (!strcmp(cmd_p[0], "adddone")) {
-		if (n_field != 6) {
+		if (n_field != 5) {
 			snprintf(output, STATS_RESULT_BUFLEN, "ERR: adddone command, bad argument\n");
 		} else {
-			rt = nc_stats_addDoneCommand(st->p_sp, cmd_p[1], cmd_p[4], cmd_p[3], cmd_p[5], "2", result);
+			rt = nc_stats_addDoneCommand(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], "2", result);
 			if (NC_OK == rt) {
 				snprintf(output, STATS_RESULT_BUFLEN, "OK\n");
 			} else {
