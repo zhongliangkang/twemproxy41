@@ -638,7 +638,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	unsigned int redirect_msg_type;
 	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
-	struct string redirect_msg_2 = string("-ERR wrong number"); //-BUCKET_TRANS_DONE
+	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
 
 	//redirect msg which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR) {

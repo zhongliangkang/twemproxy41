@@ -1314,9 +1314,11 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 				//error
 			}
 
+			log_error ("add done %s => %s",  s->pname.data, buf);
+
 			string_deinit(&s->pname);
 			string_copy(&s->pname, (uint8_t *)buf, (uint32_t)strlen(buf));
-			log_error ("add done %s %d %d %d => %s", s->name.data, s->status, s->seg_start , s->seg_end, s->pname.data);
+
 		}
 	}
 	pthread_mutex_unlock(&pool->mutex);
