@@ -9,14 +9,14 @@
 int tcp_connect (char *ip, uint16_t port) {
 
 		struct hostent *host;
-		int n, sock;
+		int sock;
 
 		struct sockaddr_in server_addr;
 		host = gethostbyname(ip);
 
 		if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 			perror("Socket");
-			exit(1);
+			return -1;
 		}
 
 
@@ -39,7 +39,7 @@ int do_proxy_cmd (int sock, char *cmd, char *buf, int buflen) {
 	n = send(sock, cmd, strlen(cmd), 0);
 	if (n < 0 ) {
 
-	} else if (n == strlen(cmd)) {
+	} else if (n == (int)strlen(cmd)) {
 
 	} else {
 
@@ -56,7 +56,7 @@ int do_proxy_cmd (int sock, char *cmd, char *buf, int buflen) {
 
 char redis_reply_name[][8] = { "", "STRING", "ARRAY", "INTEGER", "NIL", "STATUS", "ERROR" };
 
-void print_reply_info_with_redisinfo (redisInfo * r, char *cmd, redisReply * reply) {
+void print_reply_info_with_redisinfo (redisInfo * r, const char *cmd, redisReply * reply) {
 	char ipportcmd [1024];
 	snprintf (ipportcmd, 1024, "%s:%d %s", r->host, r->port, cmd);
 	print_reply_info(ipportcmd,   reply);
@@ -143,6 +143,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname) {
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 	//TODO rclock ok?
 
@@ -201,6 +202,7 @@ The command returns -1 if the key exists but has no associated expire.
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 
 	snprintf(cmd, 100, "rctransendkey %s", keyname);
@@ -210,12 +212,13 @@ The command returns -1 if the key exists but has no associated expire.
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 
 	return REDIS_OK;
 }
 
-int docmd (redisInfo *r, char *cmd) {
+int docmd (redisInfo *r, const char *cmd) {
 	redisReply * reply;
 	reply = redisCommand(r->rd, cmd);
 	if (! reply ) {
@@ -229,7 +232,7 @@ int docmd (redisInfo *r, char *cmd) {
 	return REDIS_OK;
 }
 
-void dojob(void * ptr) {
+void* dojob(void * ptr) {
 	transInfo *t = (transInfo *) ptr;
 	int status;
 
@@ -266,6 +269,7 @@ void dojob(void * ptr) {
 		pthread_mutex_unlock(&t->job->mutex);
 
 	}
+	return 0;
 }
 
 
@@ -281,7 +285,7 @@ int transfer_bucket(void * ptr) {
 	char cmd[1024];
 	int keys_len, i,n , status;
 	redisReply *keys; // store keys of bucket;
-	redisReply *type_reply, *reply ; //store type of transing key;
+
 
 	src = &t->src;
 	dst = &t->dst;
@@ -290,34 +294,32 @@ int transfer_bucket(void * ptr) {
 	assert(   src->rd &&  dst->rd);
 	assert(bucketid >=0 || bucketid < MODHASH_TOTAL_KEY );
 
-	printf("transfer_bucket src %s:%d dst %s:%d bucket %d keynum: %d\n",src->host, src->port, dst->host, dst->port,  bucketid, keys_len);
+	printf("transfer_bucket src %s:%d dst %s:%d bucket %d \n",src->host, src->port, dst->host, dst->port,  bucketid);
 
 
-	status = docmd(src,"rctransserver out");
+	status = docmd(src, "rctransserver out");
 	if (status != REDIS_OK) {
 		goto err;
 	}
 
-	status = docmd(dst,"rctransserver in");
+	status = docmd(dst, "rctransserver in");
 	if (status != REDIS_OK) {
-			goto err;
-		}
+		goto err;
+	}
 
-
-    n = snprintf(cmd, 1024, "rctransbegin %d %d", bucketid, bucketid);
-    status = docmd(src, cmd);
-    if (status != REDIS_OK) {
-    		goto err;
-    	}
-    status = docmd(dst, cmd);
-    if (status != REDIS_OK) {
-    		goto err;
-    	}
-
+	n = snprintf(cmd, 1024, "rctransbegin %d %d", bucketid, bucketid);
+	status = docmd(src, cmd);
+	if (status != REDIS_OK) {
+		goto err;
+	}
+	status = docmd(dst, cmd);
+	if (status != REDIS_OK) {
+		goto err;
+	}
 
 	snprintf(cmd, 1024, "hashkeys %d *", bucketid);
 	keys = redisCommand(src->rd, cmd);
-	if (! keys) {
+	if (!keys) {
 		//todo add a check
 		goto err;
 	}
@@ -426,7 +428,7 @@ int main(int argc, char **argv) {
 
 	jobQueue job;
 	bucketInfo * bucketlist;
-	redisReply * reply;
+
 
 	pthread_t thrd[100];
 	transInfo task[100];
@@ -518,6 +520,7 @@ int main(int argc, char **argv) {
 				goto end;
 		}
 
+
 		//docmd(&task[i].src, "PING");
 
 		status = connect_redis(&task[i].dst, dst_host, dst_port);
@@ -535,6 +538,11 @@ int main(int argc, char **argv) {
 	//send_twemproxy_ add command
 	for (i=0;i<proxylist_len;i++) {
 		int sock = tcp_connect (proxylist[i].host, proxylist[i].port+1000);
+		if (sock < 0) {
+			printf ("add: connect to twemproxy %s:%d failed, stop transing\n", proxylist[i].host, proxylist[i].port+1000);
+			goto end;
+		}
+
 		n = snprintf (add_cmd, 1024, "add alpha server pvz1 %s:%d %d-%d\n", dst_host, dst_port, seg_start, seg_end);
 		printf ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
@@ -544,7 +552,7 @@ int main(int argc, char **argv) {
 
 
 	for (i = 0;i<thread_num;i++) {
-		pthread_create(&thrd[i], NULL, (void *)dojob, (void *) &task[i]);
+		pthread_create(&thrd[i], NULL,  dojob, (void *) &task[i]);
 	}
 
 	for (i = 0;i<thread_num;i++) {
@@ -554,6 +562,11 @@ int main(int argc, char **argv) {
 	//send_twemproxy_ add command
 	for (i=0;i<proxylist_len;i++) {
 		int sock = tcp_connect (proxylist[i].host, proxylist[i].port+1000);
+		if (sock < 0) {
+			printf ("adddone: connect to twemproxy %s:%d failed, next\n", proxylist[i].host, proxylist[i].port+1000);
+			continue;
+		}
+
 		n = snprintf (add_cmd, 1024, "adddone alpha server pvz1 %s:%d %d-%d\n", dst_host, dst_port, seg_start, seg_end);
 		printf ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
@@ -561,7 +574,8 @@ int main(int argc, char **argv) {
 		close (sock);
 	}
 
-	//send_twemproxy_ adddone command
+
+
 
 end:
 	//TODO disconnect redis
