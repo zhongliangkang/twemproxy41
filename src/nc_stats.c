@@ -241,6 +241,11 @@ rstatus_t stats_pool_add_server(struct server_pool *pool, uint32_t newsvr_idx) {
 		//FIXME: deinit current\shadow
 		return status;
 	}
+
+	stats_destroy_buf(pool->ctx->stats);
+	stats_create_buf(pool->ctx->stats);
+
+
 	return NC_OK;
 }
 /*
@@ -382,7 +387,7 @@ stats_pool_unmap(struct array *stats_pool)
     log_debug(LOG_VVVERB, "unmap %"PRIu32" stats pool", npool);
 }
 
-static rstatus_t
+rstatus_t
 stats_create_buf(struct stats *st)
 {
     uint32_t int64_max_digits = 20; /* INT64_MAX = 9223372036854775807 */
@@ -469,7 +474,7 @@ stats_create_buf(struct stats *st)
     return NC_OK;
 }
 
-static void
+void
 stats_destroy_buf(struct stats *st)
 {
     if (st->buf.size != 0) {
@@ -517,6 +522,7 @@ stats_add_num(struct stats *st, struct string *key, int64_t val)
     n = nc_snprintf(pos, room, "\"%.*s\":%"PRId64", ", key->len, key->data,
                     val);
     if (n < 0 || n >= (int)room) {
+    	log_error ("add error %d %s %d ", n, pos, room);
         return NC_ERROR;
     }
 
@@ -747,6 +753,7 @@ stats_make_rsp(struct stats *st)
     for (i = 0; i < array_n(&st->sum); i++) {
         struct stats_pool *stp = array_get(&st->sum, i);
         uint32_t j;
+        uint32_t  n;
 
         status = stats_begin_nesting(st, &stp->name);
         if (status != NC_OK) {
@@ -768,8 +775,10 @@ stats_make_rsp(struct stats *st)
             }
 
             /* copy server metric from sum(c) to buffer */
+
             status = stats_copy_metric(st, &sts->metric);
             if (status != NC_OK) {
+            	//log_error ("stats_copy_metric failed i=%d j=%d addr:%s", i,j, st->addr.data);
                 return status;
             }
 
@@ -805,8 +814,10 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 	char *output = NULL;
 
 	status = stats_make_rsp(st);
+
 	if (status != NC_OK) {
-		return status;
+		log_error("stats_make_rsp failed");
+		//return status;
 	}
 
 	sd = accept(st->sd, NULL, NULL);
