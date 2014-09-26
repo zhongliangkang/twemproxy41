@@ -243,17 +243,18 @@ void* dojob(void * ptr) {
 			break;
 		}
 
-		t->job->seg_curr++;
+		t->bucket = &t->job->bucketlist[t->job->seg_curr - t->job->seg_start];
+
+		assert(t->bucket->status == BUCKET_STATUS_TODO);
+		assert(t->job->seg_curr <= t->job->seg_end && t->job->seg_start <= t->job->seg_curr) ;
+
+		t->bucket->status = BUCKET_STATUS_DOING;
 
 		if (t->job->seg_end == t->job->seg_curr) {
 			t->job->done = 1;
 		}
+		t->job->seg_curr++;
 
-		t->bucket = &t->job->bucketlist[t->job->seg_curr - t->job->seg_start];
-		printf ("%d %d\n", t->bucket->bucket_id,t->bucket->status );
-		assert(t->bucket->status == BUCKET_STATUS_TODO);
-
-		t->bucket->status = BUCKET_STATUS_DOING;
 		pthread_mutex_unlock(&t->job->mutex);
 
 		status = transfer_bucket(t);
