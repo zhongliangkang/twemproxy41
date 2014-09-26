@@ -34,8 +34,6 @@ int tcp_connect (char *ip, uint16_t port) {
 
 int do_proxy_cmd (int sock, char *cmd, char *buf, int buflen) {
 	int n;
-
-
 	n = send(sock, cmd, strlen(cmd), 0);
 	if (n < 0 ) {
 
@@ -543,11 +541,20 @@ int main(int argc, char **argv) {
 			goto end;
 		}
 
-		n = snprintf (add_cmd, 1024, "add alpha server pvz1 %s:%d %d-%d\n", dst_host, dst_port, seg_start, seg_end);
+		n = snprintf (add_cmd, 1024, "add alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
+		add_cmd[n]='\0';
 		printf ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
-		printf ("return <%s>", add_buf);
+
 		close (sock);
+
+		if (strncmp(add_buf, "OK", 2)) {
+			printf ("add fail<%s>", add_buf);
+			goto end;
+		} else {
+			printf ("add succ<%s>", add_buf);
+		}
+			
 	}
 
 
@@ -567,7 +574,8 @@ int main(int argc, char **argv) {
 			continue;
 		}
 
-		n = snprintf (add_cmd, 1024, "adddone alpha server pvz1 %s:%d %d-%d\n", dst_host, dst_port, seg_start, seg_end);
+		n = snprintf (add_cmd, 1024, "adddone alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
+		add_cmd[n]='\0';
 		printf ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
 		printf ("return <%s>", add_buf);
