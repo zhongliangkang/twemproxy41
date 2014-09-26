@@ -638,7 +638,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	unsigned int redirect_msg_type;
 	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
-	struct string redirect_msg_2 = string("-ERR wrong number"); //-BUCKET_TRANS_DONE
+	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
 
 	//redirect msg which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR) {
@@ -650,7 +650,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	//check peer msg
 	pmsg = TAILQ_FIRST(&conn->omsg_q);
 	if (!pmsg) {
-	   log_error("a empty msg fond %s\n", msg->pos);
+	   log_error("a empty msg found %s\n", msg->pos);
 	   return false;
 	}
 	if ((pmsg->transfer_status == MSG_STATUS_TRANSING) && !pmsg->redirect) {
@@ -1026,7 +1026,12 @@ msg_send(struct context *ctx, struct conn *conn)
     rstatus_t status;
     struct msg *msg;
 
+    if (! conn->send_active) {
+    	log_error ("fetal error:'proxy:%d client:%d rmsg:%p smsg:%p sd:%d'", conn->proxy, conn->client, conn->rmsg, conn->smsg, conn->sd);
+    }
+
     ASSERT(conn->send_active);
+
 
     conn->send_ready = 1;
     do {

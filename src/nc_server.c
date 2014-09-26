@@ -302,7 +302,7 @@ server_each_preconnect(void *elem, void *data)
 
     status = server_connect(pool->ctx, server, conn);
     if (status != NC_OK) {
-        log_warn("connect to server '%.*s' failed, ignored: %s",
+        log_error("connect to server '%.*s' failed, ignored: %s",
                  server->pname.len, server->pname.data, strerror(errno));
         server_close(pool->ctx, conn);
     }
@@ -607,7 +607,7 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
 
 
 con_ok:
-    //log_debug(LOG_VERB, "connect to server %s\n\n\n",server->pname.data);
+    log_error( "connect to server %s sd:%d",server->pname.data, conn->sd);
 
     con_ret = server_send_redis_auth(ctx, conn);
 
@@ -1314,9 +1314,11 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 				//error
 			}
 
+			log_error ("add done %s => %s",  s->pname.data, buf);
+
 			string_deinit(&s->pname);
 			string_copy(&s->pname, (uint8_t *)buf, (uint32_t)strlen(buf));
-			log_error ("add done %s %d %d %d => %s", s->name.data, s->status, s->seg_start , s->seg_end, s->pname.data);
+
 		}
 	}
 	pthread_mutex_unlock(&pool->mutex);
@@ -1708,6 +1710,7 @@ rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char*
 	TAILQ_INIT(&new_svr->s_conn_q);
 	/* init metric */
 	ret = stats_pool_add_server(sp, new_svr->idx);
+
 	if (NC_OK != ret) {
 		snprintf(result, 1000, "stats_pool_add_server error");
 		return ret;
