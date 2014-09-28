@@ -245,17 +245,19 @@ void* dojob(void * ptr) {
 			break;
 		}
 
-		t->job->seg_curr++;
+
+
+		t->bucket = &t->job->bucketlist[t->job->seg_curr - t->job->seg_start];
+
+		assert(t->bucket->status == BUCKET_STATUS_TODO);
+		assert(t->job->seg_curr <= t->job->seg_end && t->job->seg_start <= t->job->seg_curr) ;
+
+		t->bucket->status = BUCKET_STATUS_DOING;
 
 		if (t->job->seg_end == t->job->seg_curr) {
 			t->job->done = 1;
 		}
-
-		t->bucket = &t->job->bucketlist[t->job->seg_curr - t->job->seg_start];
-		printf ("%d %d\n", t->bucket->bucket_id,t->bucket->status );
-		assert(t->bucket->status == BUCKET_STATUS_TODO);
-
-		t->bucket->status = BUCKET_STATUS_DOING;
+		t->job->seg_curr++;
 		pthread_mutex_unlock(&t->job->mutex);
 
 		status = transfer_bucket(t);
@@ -271,6 +273,39 @@ void* dojob(void * ptr) {
 	}
 	return 0;
 }
+/*
+ * keyname = "keystr"
+ * */
+char * init_keyname (char * keystr, char *keyname, size_t * keyname_size) {
+	size_t keystr_len = 0;
+	keystr_len = strlen(keystr);
+
+	if (*keyname_size == 0) {
+		assert(keyname == NULL);
+		*keyname_size = keystr_len + 3;
+		keyname = malloc(*keyname_size);
+		if (!keyname ) {
+			return keyname;
+		}
+	} else if (*keyname_size >= keystr_len + 3) {
+
+	} else if (*keyname_size < keystr_len + 3) {
+		*keyname_size = keystr_len + 3;
+		keyname = realloc(keyname, *keyname_size);
+		if (!keyname ) {
+			return keyname;
+		}
+	}
+
+	keyname[0] = '"';
+	memcpy(keyname +1, keystr, keystr_len);
+	keyname[keystr_len + 1  ] = '"';
+	keyname[keystr_len + 2 ] = '\0';
+
+
+	return keyname;
+}
+
 
 
 int transfer_bucket(void * ptr) {
@@ -285,6 +320,8 @@ int transfer_bucket(void * ptr) {
 	char cmd[1024];
 	int keys_len, i,n , status;
 	redisReply *keys; // store keys of bucket;
+	char *keyname = NULL;
+	size_t keyname_size = 0;
 
 
 	src = &t->src;
@@ -326,13 +363,21 @@ int transfer_bucket(void * ptr) {
 	keys_len = keys->elements;
 	t->bucket->key_num = keys->elements;
 
+
 	for (i = 0; i < keys_len; i++) {
+		keyname = init_keyname(keys->element[i]->str, keyname , &keyname_size);
+		printf ("keystr -> keyname\n", keys->element[i]->str, keyname);
 		status = trans_string(src, dst, keys->element[i]->str);
+
 		if (REDIS_OK == status) {
 			t->bucket->key_succ ++;
 		} else {
 			t->bucket->key_fail ++;
 		}
+	}
+
+	if (keyname) {
+		free (keyname);
 	}
 
 	freeReplyObject(keys);
@@ -505,7 +550,7 @@ int main(int argc, char **argv) {
 	pthread_mutex_init(&job.mutex, NULL);
 	job.seg_start = seg_start;
 	job.seg_end = seg_end;
-	job.seg_curr = seg_start;
+	job.seg_curr = seg_start ;
 	job.err = 0;
 	job.bucketlist = bucketlist;
 

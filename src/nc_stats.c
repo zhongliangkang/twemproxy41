@@ -826,6 +826,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 		return NC_ERROR;
 	}
 
+	memset(recv_command, 0, sizeof(recv_command));
 	n = recv(sd, recv_command, 80, 0);
 	if (n >= 2 && recv_command[n - 2] == CR && recv_command[n - 1] == LF) {
 		recv_command[n - 2] = recv_command[n - 1] = 0;
@@ -835,7 +836,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 
 	/* get rid of head,tail space */
 	nc_trim(recv_command);
-	log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+	log_debug(LOG_VERB,"receive length:%d, command:'%s' %d %d %d",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
 
 	// null command
 	if (strlen(recv_command) < 1) {
