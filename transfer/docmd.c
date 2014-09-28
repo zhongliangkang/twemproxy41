@@ -119,13 +119,26 @@ static void docmd (struct config config, int num, char * cmd, int verb) {
     int ok;
     redisContext *c;
     redisReply *reply;
+    char out[1024] ;
+    memset(out, 0, 1024);
 
     int j, n;
     c = connect(config);
+    
     printf ("create key aa 1 - %d\n", num);
     
     for (i=1;i<=num;i++) {
 	    reply = redisCommand(c,cmd);
+	    if (!reply) {
+		printf ("got bad reply\n");
+		break;
+	    }
+
+	    if (strncmp(reply->str, out, reply->len)) {
+		printf ("i:%d cmd:%s output: prev:%s curr:%s len:%d\n", i, cmd, out, reply->str, reply->len);
+	    }
+	    memcpy(out, reply->str, reply->len);
+	    out[reply->len] = 0;
 	    if (verb) 
 	     printf ("(%s) => %s\n", cmd, reply->str);
 	    ok ++;            		

@@ -28,7 +28,7 @@ export REDIS_TEST_CONFIG
 # Fallback to gcc when $CC is not in $PATH.
 CC:=$(shell sh -c 'type $(CC) >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
 OPTIMIZATION?=-O0
-WARNINGS=-Wall -W -Wstrict-prototypes -Wwrite-strings
+WARNINGS=-Wall -W -Wstrict-prototypes -Wwrite-strings -D_GNU_SOURCE
 DEBUG?= -g -ggdb
 REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CFLAGS) $(WARNINGS) $(DEBUG) $(ARCH) -I. 
 REAL_LDFLAGS=$(LDFLAGS) $(ARCH)
@@ -120,7 +120,7 @@ docmd: docmd.o $(STLIBNAME)
 	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
 
 transfer: transfer.o $(STLIBNAME) 
-	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
+	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
 
 test: hiredis-test
 	./hiredis-test

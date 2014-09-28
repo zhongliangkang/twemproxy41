@@ -819,7 +819,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 		log_error("stats_make_rsp failed");
 		//return status;
 	}
-
+	memset(recv_command, 0, sizeof(recv_command));
 	sd = accept(st->sd, NULL, NULL);
 	if (sd < 0) {
 		log_error("accept on m %d failed: %s", st->sd, strerror(errno));
