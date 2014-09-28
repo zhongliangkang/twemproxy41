@@ -1233,7 +1233,7 @@ int redisGetReplyFromReader(redisContext *c, void **reply) {
 
 void * redisRestoreCommand(redisContext *c, char *key, size_t keylen,  int ttl, char * buf, size_t buflen) {
 	void *reply;
-	int  n;
+	int  n1,n2;
 //	char cmd[1024]; //TODO use sendv to avoid alloc too may data
 	int ttllen = intlen (ttl);
 	int cmd_set_len = 0;
@@ -1270,13 +1270,13 @@ void * redisRestoreCommand(redisContext *c, char *key, size_t keylen,  int ttl, 
 		c->restorecmd.set_size= cmd_set_len;
 	}
 
-	n = sprintf(c->restorecmd.set, "*4\r\n$7\r\nrestore\r\n$%zu\r\n",keylen );
-	memcpy(c->restorecmd.set + n, key, keylen);
-	n = sprintf(c->restorecmd.set + n + intlen(keylen),  "\r\n$%d\r\n%d\r\n$%zu\r\n", ttllen, ttl, buflen);
+	n1 = sprintf(c->restorecmd.set, "*4\r\n$7\r\nrestore\r\n$%zu\r\n",keylen );
+	memcpy(c->restorecmd.set + n1, key, keylen);
+	n2 = sprintf(c->restorecmd.set + n1 + keylen,  "\r\n$%d\r\n%d\r\n$%zu\r\n", ttllen, ttl, buflen);
 
-	printf ("set_cmd:%s\n", c->restorecmd.set);
 
-	c->restorecmd.set_len = n;
+
+	c->restorecmd.set_len = n1 + n2 + keylen;
 	c->restorecmd.content = buf;
 	c->restorecmd.content_len = buflen;
 
