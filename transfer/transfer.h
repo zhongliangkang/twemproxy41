@@ -112,7 +112,7 @@ typedef struct trans_info {
 int parse_ipport(const char* ipport, char *ip, uint32_t iplen, uint16_t * port) ;
 int transfer_bucket(void *ptr);
 int connect_redis(redisInfo * redis, char *hostname, uint16_t port);
-int trans_string(redisInfo *src, redisInfo *dst, char * keyname);
+int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len) ;
 
 void print_reply_info(char *cmd, redisReply * reply);
 

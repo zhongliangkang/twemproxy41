@@ -115,17 +115,18 @@ void print_reply_info(char *cmd, redisReply * reply) {
 /*
  * trans_string
  */
-int trans_string(redisInfo *src, redisInfo *dst, char * keyname) {
+int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len) {
 	redisReply    *reply_set, *reply;
 	char cmd[100];
 	char * setcmd = NULL;
 	long long ttl;
 
 
-	//TODO rclock key at dst
-	snprintf(cmd, 100, "rclockkey %s", keyname);
 
-	reply = redisCommand(dst->rd, cmd);
+	//TODO rclock key at dst
+	snprintf(cmd, 100, "rclockkey \"%s\"", keyname);
+
+	reply = redisCommand(dst->rd, "rclockkey %b", keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
@@ -136,7 +137,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname) {
 	freeReplyObject(reply);
 
 	//TODO rclock key at src
-	reply = redisCommand(src->rd, cmd);
+	reply = redisCommand(src->rd, "rclockkey %b", keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
@@ -152,7 +153,7 @@ The command returns -2 if the key does not exist.
 The command returns -1 if the key exists but has no associated expire.
 */
 	snprintf(cmd, 100, "pttl %s", keyname);
-	reply = redisCommand(src->rd, cmd);
+	reply = redisCommand(src->rd, "pttl %b", keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
@@ -166,7 +167,7 @@ The command returns -1 if the key exists but has no associated expire.
 
 	//get value of key at src
 	snprintf(cmd, 100, "dump %s", keyname);
-	reply = redisCommand(src->rd, cmd);
+	reply = redisCommand(src->rd, "dump %b" , keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
@@ -180,7 +181,7 @@ The command returns -1 if the key exists but has no associated expire.
 	if (reply->type == REDIS_REPLY_STRING) {
 		setcmd = malloc(reply->len + 1024); //FIXME
 		snprintf(setcmd, 100, "restore %s %lld ", keyname, ttl);
-		reply_set = redisRestoreCommand (dst->rd, keyname, ttl,reply->str, reply->len);
+		reply_set = redisRestoreCommand (dst->rd, keyname, keyname_len, ttl,reply->str, reply->len);
 
 		print_reply_info(setcmd, reply_set);
 		freeReplyObject(reply_set);
@@ -195,7 +196,7 @@ The command returns -1 if the key exists but has no associated expire.
 
 //TODO rclock key at dst
 	snprintf(cmd, 100, "rcunlockkey %s", keyname);
-	reply = redisCommand(dst->rd, cmd);
+	reply = redisCommand(dst->rd, "rcunlockkey %b" , keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
@@ -205,7 +206,7 @@ The command returns -1 if the key exists but has no associated expire.
 
 	snprintf(cmd, 100, "rctransendkey %s", keyname);
 	//TODO rclock key at src
-	reply = redisCommand(src->rd, cmd);
+	reply = redisCommand(src->rd, "rctransendkey %b" , keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
 		return REDIS_ERR;
@@ -273,39 +274,6 @@ void* dojob(void * ptr) {
 	}
 	return 0;
 }
-/*
- * keyname = "keystr"
- * */
-char * init_keyname (char * keystr, char *keyname, size_t * keyname_size) {
-	size_t keystr_len = 0;
-	keystr_len = strlen(keystr);
-
-	if (*keyname_size == 0) {
-		assert(keyname == NULL);
-		*keyname_size = keystr_len + 3;
-		keyname = malloc(*keyname_size);
-		if (!keyname ) {
-			return keyname;
-		}
-	} else if (*keyname_size >= keystr_len + 3) {
-
-	} else if (*keyname_size < keystr_len + 3) {
-		*keyname_size = keystr_len + 3;
-		keyname = realloc(keyname, *keyname_size);
-		if (!keyname ) {
-			return keyname;
-		}
-	}
-
-	keyname[0] = '"';
-	memcpy(keyname +1, keystr, keystr_len);
-	keyname[keystr_len + 1  ] = '"';
-	keyname[keystr_len + 2 ] = '\0';
-
-
-	return keyname;
-}
-
 
 
 int transfer_bucket(void * ptr) {
@@ -365,9 +333,8 @@ int transfer_bucket(void * ptr) {
 
 
 	for (i = 0; i < keys_len; i++) {
-		keyname = init_keyname(keys->element[i]->str, keyname , &keyname_size);
-		printf ("keystr -> keyname\n", keys->element[i]->str, keyname);
-		status = trans_string(src, dst, keys->element[i]->str);
+
+		status = trans_string(src, dst, keys->element[i]->str, keys->element[i]->len);
 
 		if (REDIS_OK == status) {
 			t->bucket->key_succ ++;

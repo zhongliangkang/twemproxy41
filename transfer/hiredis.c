@@ -1231,12 +1231,11 @@ int redisGetReplyFromReader(redisContext *c, void **reply) {
 }
 
 
-void * redisRestoreCommand(redisContext *c, char *key, int ttl, char * buf, size_t buflen) {
+void * redisRestoreCommand(redisContext *c, char *key, size_t keylen,  int ttl, char * buf, size_t buflen) {
 	void *reply;
-	int len, n;
-	char cmd[1024]; //TODO use sendv to avoid alloc too may data
+	int  n;
+//	char cmd[1024]; //TODO use sendv to avoid alloc too may data
 	int ttllen = intlen (ttl);
-	int keylen;
 	int cmd_set_len = 0;
 /*
  *  struct iovec iov[3];
@@ -1252,7 +1251,7 @@ void * redisRestoreCommand(redisContext *c, char *key, int ttl, char * buf, size
 //	c->obuf
 // *3\r\n$7\r\nrestore\r\n$3\r\naaa\r\n$1\r\n0\r\n
 
-	keylen = strlen(key);
+//	keylen = strlen(key);
 
 	cmd_set_len = keylen + ttllen + 64;
 
@@ -1263,7 +1262,7 @@ void * redisRestoreCommand(redisContext *c, char *key, int ttl, char * buf, size
 		}
 		c->restorecmd.set_size = cmd_set_len;
 
-	} else if (c->restorecmd.set_size < cmd_set_len) {
+	} else if (c->restorecmd.set_size < (size_t)cmd_set_len) {
 		c->restorecmd.set = realloc(c->restorecmd.set, cmd_set_len);
 		if (!c->restorecmd.set) {
 			//TODO MALLOC FAILED
@@ -1271,9 +1270,13 @@ void * redisRestoreCommand(redisContext *c, char *key, int ttl, char * buf, size
 		c->restorecmd.set_size= cmd_set_len;
 	}
 
-	n = sprintf(c->restorecmd.set, "*4\r\n$7\r\nrestore\r\n$%d\r\n%s\r\n$%d\r\n%d\r\n$%d\r\n", strlen(key), key, ttllen, ttl, buflen);
-	c->restorecmd.set_len = n;
+	n = sprintf(c->restorecmd.set, "*4\r\n$7\r\nrestore\r\n$%zu\r\n",keylen );
+	memcpy(c->restorecmd.set + n, key, keylen);
+	n = sprintf(c->restorecmd.set + n + intlen(keylen),  "\r\n$%d\r\n%d\r\n$%zu\r\n", ttllen, ttl, buflen);
 
+	printf ("set_cmd:%s\n", c->restorecmd.set);
+
+	c->restorecmd.set_len = n;
 	c->restorecmd.content = buf;
 	c->restorecmd.content_len = buflen;
 
