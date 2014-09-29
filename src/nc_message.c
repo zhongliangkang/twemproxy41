@@ -417,7 +417,7 @@ msg_empty(struct msg *msg)
     return msg->mlen == 0 ? true : false;
 }
 
-/* split the response */
+/* split the response, copy from msg_parsed*/
 static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struct msg *msg) {
 	struct msg *nmsg;
 	struct mbuf *mbuf, *nbuf;
@@ -456,7 +456,9 @@ static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struc
 
 	conn->rmsg = nmsg;
 	//conn->recv_done(ctx, conn, msg, nmsg);
-	log_debug(LOG_VVERB, "redirect: split a newmsg:%p, length:%d\n", nmsg, nmsg->mlen);
+
+	log_debug(LOG_VVERB, "redirect: split a newmsg:%p from %p, length:%d\n", nmsg,msg, nmsg->mlen);
+	msg_put(msg);
 
 	return NC_OK;
 }
@@ -630,6 +632,12 @@ static unsigned int intlen  (unsigned int x) {
 
 }
 
+/*
+ * msg:old server's reponse
+ * pmsg: response's peer msg, request msg
+ *
+ */
+
 static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *msg) {
 	struct msg* pmsg;
 	struct conn *c_conn;
@@ -640,7 +648,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
 	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
 
-	//redirect msg which  server->rsp && peer request's status == 2 && PARSED_OK
+	// msg : which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR) {
 		// will go on, for more readable
 	} else {
@@ -648,11 +656,14 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	}
 
 	//check peer msg
+	//why a empty msg here ?
 	pmsg = TAILQ_FIRST(&conn->omsg_q);
 	if (!pmsg) {
-	   log_error("a empty msg found %s\n", msg->pos);
+	   msg_put(pmsg);
+	   log_error("a empty msg found %p\n", msg);
 	   return false;
 	}
+
 	if ((pmsg->transfer_status == MSG_STATUS_TRANSING) && !pmsg->redirect) {
 		// will go on, for more readable
 	} else {
@@ -663,14 +674,14 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	buf = STAILQ_FIRST(&msg->mhdr);
 	if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
 			redirect_msg_type = REDIRECT_TYPE_BUCKET_TRANS_DONE;
-			msg->owner->err = 0; //reset the error to 0
-			log_debug(LOG_VVERB, "redirect match type2 %.*s, length: %d",
-					redirect_msg_2.len, buf->pos , buf->pos, (ssize_t) (buf->pos - buf->start) );
+			//msg->owner->err = 0; //reset the error to 0
+		log_debug(LOG_VVERB, "redirect msg %p match type2 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_2.len, buf->pos,
+				(size_t ) (buf->last - buf->pos), msg->owner->err);
 	} else	if ((buf->last - buf->pos) >= redirect_msg_1.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_1.data, redirect_msg_1.len)) {
 		redirect_msg_type = REDIRECT_TYPE_KEY_TRANSFERING;
-		msg->owner->err = 0; //reset the error to 0
-		log_debug(LOG_VVERB, "redirect match type1 %.*s , length: %d",
-				redirect_msg_1.len, buf->pos, (size_t) (buf->pos - buf->start) );
+
+		log_debug(LOG_VVERB, "redirect msg %p match type1 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_1.len, buf->pos,
+					(size_t ) (buf->last - buf->pos), msg->owner->err);
 
 	} else {
 		//a normal error, no direct
