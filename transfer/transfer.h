@@ -113,6 +113,10 @@ int parse_ipport(const char* ipport, char *ip, uint32_t iplen, uint16_t * port) 
 int transfer_bucket(void *ptr);
 int connect_redis(redisInfo * redis, char *hostname, uint16_t port);
 int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len) ;
+int check_reply_ok(redisReply * reply);
+int check_reply_status_str(redisReply * reply, char * str);
+void check_reply_and_free(redisReply * reply);
+int check_reply_ok_and_free(redisInfo *ri,const char * cmd, redisReply * reply);
 
 void print_reply_info(char *cmd, redisReply * reply);
 

@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <transfer.h>
 
+#define max_cmd_length  100000
 
 int tcp_connect (char *ip, uint16_t port) {
 
@@ -55,8 +56,8 @@ int do_proxy_cmd (int sock, char *cmd, char *buf, int buflen) {
 char redis_reply_name[][8] = { "", "STRING", "ARRAY", "INTEGER", "NIL", "STATUS", "ERROR" };
 
 void print_reply_info_with_redisinfo (redisInfo * r, const char *cmd, redisReply * reply) {
-	char ipportcmd [1024];
-	snprintf (ipportcmd, 1024, "%s:%d %s", r->host, r->port, cmd);
+	char ipportcmd [max_cmd_length];
+	snprintf (ipportcmd, max_cmd_length, "%s:%d %s", r->host, r->port, cmd);
 	print_reply_info(ipportcmd,   reply);
 
 }
@@ -77,8 +78,12 @@ void print_reply_info(char *cmd, redisReply * reply) {
 	}	
 
 
-	printf("'%s'\t return len: %d type:%d(%s) elems:%zd str:'%s'\n", cmd, reply->len, reply->type,
-						redis_reply_name[reply->type], reply->elements, reply->str);
+    if(reply->str){
+        printf("'%s'\t return len: %d type:%d() elems:%zd str:'%s'\n", cmd, reply->len, reply->type,
+                reply->elements, reply->str);
+    }else{
+        fprintf(stderr, "cmd:%s ,return len: %d, type:%d, str:'%s'\n",cmd,reply->len,reply->type,reply->str);
+    }
 
 
 	switch (reply->type) {
@@ -113,38 +118,42 @@ void print_reply_info(char *cmd, redisReply * reply) {
 
 
 /*
- * trans_string
+ * trans_string.
  */
 int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len) {
 	redisReply    *reply_set, *reply;
-	char cmd[100];
+	char cmd[max_cmd_length];
 	char * setcmd = NULL;
 	long long ttl;
-
-
+    char * key_locked = "locked";
 
 	//TODO rclock key at dst
-	snprintf(cmd, 100, "rclockkey \"%s\"", keyname);
+	snprintf(cmd, max_cmd_length, "rclockkey \"%s\"", keyname);
 
 	reply = redisCommand(dst->rd, "rclockkey %b", keyname, keyname_len);
-	if (!reply) {
-		printf("ERR: %s failed\n", cmd);
-		return REDIS_ERR;
-	}
-	print_reply_info(cmd, reply);
-	//TODO rclock ok?
 
-	freeReplyObject(reply);
+    if(check_reply_status_str(reply,key_locked) == REDIS_OK){
+        // key is locking in dest. how to do?
+        check_reply_and_free(reply);
+    }else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
+		printf("ERR: dst lockkey %s failed\n", cmd);
+        goto ERR_UNLOCK_DST_KEY;
+    }
 
-	//TODO rclock key at src
+	//rclock ok  or key is locking.
+
+	// rclock key at src
 	reply = redisCommand(src->rd, "rclockkey %b", keyname, keyname_len);
-	if (!reply) {
-		printf("ERR: %s failed\n", cmd);
-		return REDIS_ERR;
-	}
-	print_reply_info(cmd, reply);
-	freeReplyObject(reply);
-	//TODO rclock ok?
+
+	if(check_reply_status_str(reply,key_locked) == REDIS_OK){
+        // key is locking in dest. how to do?
+        check_reply_and_free( reply);
+    }else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
+		printf("ERR: src lockkey %s failed\n", cmd);
+        goto ERR_UNLOCK_SRC_KEY;
+    }
+
+	// rclock ok or key is locking.
 
 	//get ttl of key at src
 
@@ -152,22 +161,36 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 The command returns -2 if the key does not exist.
 The command returns -1 if the key exists but has no associated expire.
 */
-	snprintf(cmd, 100, "pttl %s", keyname);
+	snprintf(cmd, max_cmd_length, "pttl \"%s\"", keyname);
 	reply = redisCommand(src->rd, "pttl %b", keyname, keyname_len);
+
+    print_reply_info(cmd, reply);
+    // pttl result mayben null
 	if (!reply) {
 		printf("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
+
 	ttl = reply->integer;
-	if (ttl == -1) {
-		ttl = 0;
-	}
+    if(ttl == -1) {
+        // if no ttl set, here set it as 0
+        ttl = 0;
+    }else if (ttl == 0) {
+        // if the ttl is 0, the key will expired ,here we add 1 ms for that key ? or just donot restore?
+        ttl = 1;
+	}else if(ttl == -2){
+		printf("info: key not found: %s \n", cmd);
+        // key not exist, maybe ttl or deleted, got unlock.
+        goto UNLOCK_KEY;
+    }
+
 
 	freeReplyObject(reply);
 
-	//get value of key at src
-	snprintf(cmd, 100, "dump %s", keyname);
+	//get value of key at src, dump return maybe nil
+	snprintf(cmd, max_cmd_length, "dump %s", keyname);
 	reply = redisCommand(src->rd, "dump %b" , keyname, keyname_len);
+    print_reply_info(cmd, reply);
 	if (!reply) {
 		printf("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
@@ -180,7 +203,9 @@ The command returns -1 if the key exists but has no associated expire.
 	//set to dst
 	if (reply->type == REDIS_REPLY_STRING) {
 		setcmd = malloc(reply->len + 1024); //FIXME
-		snprintf(setcmd, 100, "restore %s %lld ", keyname, ttl);
+
+        // maybe very long.
+		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname, ttl);
 		reply_set = redisRestoreCommand (dst->rd, keyname, keyname_len, ttl,reply->str, reply->len);
 
 		print_reply_info(setcmd, reply_set);
@@ -194,8 +219,10 @@ The command returns -1 if the key exists but has no associated expire.
 
 	//TODO  set pexpire if pttl > 0
 
+UNLOCK_KEY:
+
 //TODO rclock key at dst
-	snprintf(cmd, 100, "rcunlockkey %s", keyname);
+	snprintf(cmd, max_cmd_length, "rcunlockkey %s", keyname);
 	reply = redisCommand(dst->rd, "rcunlockkey %b" , keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
@@ -204,7 +231,7 @@ The command returns -1 if the key exists but has no associated expire.
 	print_reply_info(cmd, reply);
 	freeReplyObject(reply);
 
-	snprintf(cmd, 100, "rctransendkey %s", keyname);
+	snprintf(cmd, max_cmd_length, "rctransendkey %s", keyname);
 	//TODO rclock key at src
 	reply = redisCommand(src->rd, "rctransendkey %b" , keyname, keyname_len);
 	if (!reply) {
@@ -215,6 +242,14 @@ The command returns -1 if the key exists but has no associated expire.
 	freeReplyObject(reply);
 
 	return REDIS_OK;
+
+ERR_UNLOCK_SRC_KEY:
+
+
+
+ERR_UNLOCK_DST_KEY:
+
+    return REDIS_ERR;
 }
 
 int docmd (redisInfo *r, const char *cmd) {
@@ -231,6 +266,40 @@ int docmd (redisInfo *r, const char *cmd) {
 	return REDIS_OK;
 }
 
+int check_reply_ok(redisReply * reply){
+    if (reply && 
+            reply->type == REDIS_REPLY_STATUS && 
+            strcasecmp(reply->str,"ok") ==0 ) {
+        return REDIS_OK;
+	}
+    return REDIS_ERR;
+}
+
+int check_reply_status_str(redisReply * reply, char * str){
+    if (reply && 
+            reply->type == REDIS_REPLY_STATUS && 
+            strcasecmp(reply->str,str) ==0 ) {
+        return REDIS_OK;
+	}
+    return REDIS_ERR;
+}
+
+void check_reply_and_free(redisReply * reply){
+    if(reply){
+        freeReplyObject(reply);
+    }
+    return;
+}
+
+int check_reply_ok_and_free(redisInfo *ri,const char * cmd, redisReply * reply){
+    int ret = check_reply_ok(reply);
+    check_reply_and_free(reply);
+
+    print_reply_info_with_redisinfo(ri, cmd, reply);
+    return ret;
+}
+
+
 void* dojob(void * ptr) {
 	transInfo *t = (transInfo *) ptr;
 	int status;
@@ -243,8 +312,6 @@ void* dojob(void * ptr) {
 			pthread_mutex_unlock(&t->job->mutex);
 			break;
 		}
-
-
 
 		t->bucket = &t->job->bucketlist[t->job->seg_curr - t->job->seg_start];
 
@@ -288,6 +355,7 @@ int transfer_bucket(void * ptr) {
 	char cmd[1024];
 	int keys_len, i,n , status;
 	redisReply *keys; // store keys of bucket;
+    redisReply *repl;
 	char *keyname = NULL;
 	size_t keyname_size = 0;
 
@@ -302,30 +370,41 @@ int transfer_bucket(void * ptr) {
 	printf("transfer_bucket src %s:%d dst %s:%d bucket %d \n",src->host, src->port, dst->host, dst->port,  bucketid);
 
 
-	status = docmd(src, "rctransserver out");
-	if (status != REDIS_OK) {
-		goto err;
-	}
+	repl = redisCommand(src->rd, "rctransserver out");
 
-	status = docmd(dst, "rctransserver in");
-	if (status != REDIS_OK) {
-		goto err;
-	}
+    if( check_reply_ok_and_free(src, "rctransserver out",repl) != REDIS_OK){
+        goto err;
+    }
 
-	n = snprintf(cmd, 1024, "rctransbegin %d %d", bucketid, bucketid);
-	status = docmd(src, cmd);
-	if (status != REDIS_OK) {
-		goto err;
-	}
-	status = docmd(dst, cmd);
-	if (status != REDIS_OK) {
-		goto err;
-	}
 
-	snprintf(cmd, 1024, "hashkeys %d *", bucketid);
+	repl = redisCommand(dst->rd, "rctransserver in");
+    if( check_reply_ok_and_free(dst, "rctransserver in" ,repl) != REDIS_OK){
+        printf("trans in failed: %d\n",bucketid);
+        goto err;
+    }
+
+	n = snprintf(cmd, max_cmd_length, "rctransbegin %d %d", bucketid, bucketid);
+
+	repl = redisCommand(src->rd, cmd);
+    if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
+        printf("trans in failed: %d\n",bucketid);
+        goto err;
+    }
+    
+
+	repl = redisCommand(dst->rd, cmd);
+    if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
+        goto err;
+    }
+    
+
+	snprintf(cmd, max_cmd_length, "hashkeys %d *", bucketid);
 	keys = redisCommand(src->rd, cmd);
+
+    print_reply_info(cmd, keys);
 	if (!keys) {
 		//todo add a check
+        printf("cannot find keys: %d\n",bucketid);
 		goto err;
 	}
 	keys_len = keys->elements;
@@ -339,7 +418,8 @@ int transfer_bucket(void * ptr) {
 		if (REDIS_OK == status) {
 			t->bucket->key_succ ++;
 		} else {
-			t->bucket->key_fail ++;
+            printf("trans string failed: %d\n",bucketid);
+            t->bucket->key_fail ++;
 		}
 	}
 
@@ -349,19 +429,26 @@ int transfer_bucket(void * ptr) {
 
 	freeReplyObject(keys);
 
-    n = snprintf(cmd, 1024, "rctransend %d %d", bucketid, bucketid);
-    status = docmd(src, cmd);
-    if (status != REDIS_OK) {
-    		goto err;
-    	}
-    status = docmd(dst, cmd);
-    if (status != REDIS_OK) {
-    		goto err;
-    	}
+    n = snprintf(cmd, max_cmd_length, "rctransend %d %d", bucketid, bucketid);
+	repl = redisCommand(src->rd, cmd);
+    if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
+        printf("trans end failed: %d\n",bucketid);
+        goto err;
+    }
+    
+	repl = redisCommand(dst->rd, cmd);
+    if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
+        printf("trans end dst failed: %d\n",bucketid);
+        goto err;
+    }
+    
+    repl = NULL;
+
 
 	return REDIS_OK;
 
 err:
+    printf("trans string failed ERR: %d\n",bucketid);
 
 	return REDIS_ERR;
 }
@@ -420,7 +507,7 @@ int parse_proxylist(char *filename, redisInfo *proxylist) {
 		buf[len] = '\0';
 		status = parse_ipport(buf, proxylist[n].host, sizeof(proxylist[n].host), &proxylist[n].port);
 		if (status == REDIS_ERR) {
-			printf("parse proxylist:%s:%d failed\n", filename, n);
+			printf("parse proxylist:%s:%d failed\n", filename, n);   // TODO: error ip:port skip?
 		}
 		n++;
 	}
@@ -445,7 +532,7 @@ int main(int argc, char **argv) {
 	pthread_t thrd[100];
 	transInfo task[100];
 
-	char add_cmd[1024], add_buf[1024];
+	char add_cmd[max_cmd_length], add_buf[max_cmd_length];
 
 	int thread_num = 10;
 
@@ -555,7 +642,7 @@ int main(int argc, char **argv) {
 			goto end;
 		}
 
-		n = snprintf (add_cmd, 1024, "add alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
+		n = snprintf (add_cmd, max_cmd_length, "add alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
 		add_cmd[n]='\0';
 		printf ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
@@ -568,7 +655,6 @@ int main(int argc, char **argv) {
 		} else {
 			printf ("add succ<%s>", add_buf);
 		}
-			
 	}
 
 
@@ -588,7 +674,7 @@ int main(int argc, char **argv) {
 			continue;
 		}
 
-		n = snprintf (add_cmd, 1024, "adddone alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
+		n = snprintf (add_cmd, max_cmd_length, "adddone alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
 		add_cmd[n]='\0';
 		printf ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
