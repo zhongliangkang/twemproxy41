@@ -1366,6 +1366,7 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 	struct string item;
 	struct server tmpsvr;
 	struct server_pool *pool;
+    int add_again = 0; // if run add command the second time.
 
 	log_debug(LOG_VERB, "nc_add_a_server: add %s %s %s %s %s", sp_name, inst, app, segs, status);
 
@@ -1408,6 +1409,9 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 	//int old_server_idx = -1;
 	for (server_index = 0; server_index < nserver; server_index++) {
 		struct server *s = (struct server *) array_get(&pool->server, server_index);
+
+        // we reset add_again flag to 0 for each server
+        add_again = 0;
 		if (s->status == 0) {
 			continue;
 		}
@@ -1416,21 +1420,39 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 				  || (tmpsvr.seg_end >= s->seg_start && tmpsvr.seg_end <= s->seg_end ) ) {
 
 			if (0 == string_compare(&tmpsvr.name, &s->name)) {
-				snprintf(result, STATS_RESULT_BUFLEN, "cannot transfer to same instance %s -> %s", s->pname.data, tmpsvr.pname.data) ;
-				goto err;
+                if( tmpsvr.status == 2  && s->status == 2 &&
+                        (tmpsvr.seg_start == s->seg_start && tmpsvr.seg_end == s->seg_end) ){
+                    add_again = 1;
+                    // do nothing.
+                    // the same operation. we allowed add command to run twice.
+                }else{
+                    snprintf(result, STATS_RESULT_BUFLEN, "cannot transfer to same instance %s status:%d -> %s status:%d",
+                            s->pname.data, s->status, tmpsvr.pname.data, tmpsvr.status) ;
+                    goto err;
+                }
 			}
 
 			if (s->status == 1) {
 				seg_ok ++;
 			} else if (s->status == 2 || s->status == 3) {
-				snprintf(result, STATS_RESULT_BUFLEN, "seg is in transfering %s", s->pname.data);
-				goto err;
+                if(add_again == 0){
+                    snprintf(result, STATS_RESULT_BUFLEN, "seg is in transfering %s", s->pname.data);
+                    goto err;
+                }
 			} else {
 				//NO REACH
 			}
 		}
 
 	}
+
+    // run again. we need not to update the pool.
+    if(add_again){
+        string_deinit ( &tmpsvr.app);
+        string_deinit ( &tmpsvr.name);
+        string_deinit ( &tmpsvr.pname);
+        return NC_OK;
+    }
 
     pthread_mutex_lock(&pool->mutex);
 	log_error("pthread_mutex_lock for nc_add_new_server");
