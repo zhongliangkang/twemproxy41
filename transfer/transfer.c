@@ -775,6 +775,12 @@ int main(int argc, char **argv) {
 	}
 
 
+    // error happed when transfering, stop here!
+    if(job.err){
+        log_err("ERROR: transfering some error happened, transfer failed, trans job not finished,exit.");
+        exit(1);
+    }
+
     /* if this bucket is the last bucket, we should run rccastransend to check if all the bucket transfered.
        here we consider maybe rccastransend would return a error result if the redis is transfer 2 segment the same time.
        but we donot look it as fail, but we give a warning that there maybe another transfer running on that redis.
