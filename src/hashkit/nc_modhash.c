@@ -154,7 +154,7 @@ modhash_update(struct server_pool *pool)
 			pool->continuum[idx].index = server_index;
 			pool->continuum[idx].value = 0;
 			pool->continuum[idx].status = CONTINUUM_STATUS_NOTRANS;
-			pool->continuum[idx].newindex = 0; //new index
+			//pool->continuum[idx].newindex = 0; //new index
 
 			pointer_counter += pointer_per_server;
 		 }
@@ -178,8 +178,8 @@ modhash_update(struct server_pool *pool)
          }
 
    		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
-   			pool->continuum[idx].status = CONTINUUM_STATUS_TRANSING;
    			pool->continuum[idx].newindex = server_index;
+   			pool->continuum[idx].status = CONTINUUM_STATUS_TRANSING;
    			pointer_counter_status2 += pointer_per_server;
    		 }
    		pool_transfer_status = 2;
@@ -264,7 +264,8 @@ modhash_bucket_set_status (struct continuum *continuum, uint32_t ncontinuum, uin
     ASSERT(new_status > 0);
     old_status = c->status;
     if (require_status > -1 && old_status != require_status) {
-    	log_error ( "modhash_bucket_set_status set slot %d status to %d failed, may be a adddone is executed", hash % ncontinuum, new_status);
+    	log_error ( "warn: modhash_bucket_set_status set slot %d status from %d (now:%d) to %d failed, may be a adddone is executed",
+    			hash % ncontinuum, require_status, c->status, new_status);
     	return NC_ERROR;
     }
 

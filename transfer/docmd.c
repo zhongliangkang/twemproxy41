@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
 
 #include "hiredis.h"
 
@@ -30,6 +31,10 @@ struct config {
     struct {
         const char *path;
     } unix;
+
+    char *cmd_template;
+    int num;
+    int verb;
 };
 
 /* The following lines make up our testing "framework" :) */
@@ -114,20 +119,40 @@ static redisContext *connect(struct config config) {
 
 
 
-static void docmd (struct config config, int num, char * cmd, int verb) {
+void * docmd (void * ptr) {
     int i;
-    int ok;
+    int ok = 0;
     redisContext *c;
     redisReply *reply;
     char out[1024] ;
+    char *template, cmd[1024], key[100], *p;
     memset(out, 0, 1024);
 
-    int j, n;
-    c = connect(config);
+    struct config *config = ptr;
+    template= config->cmd_template;
+    int j, n, keylen;
+    c = connect(*config);
     
-    printf ("create key aa 1 - %d\n", num);
+    printf ("create key aa 1 - %d\n", config->num);
     
-    for (i=1;i<=num;i++) {
+    for (i=1;i<=config->num;i++) {
+	     for (j=0,p=template;*p != '\0' ;p++) {
+		switch (*p) {
+		case '%':
+			if (*(p+1) == 'k') {
+				keylen = sprintf (key,  "aa%d", i);	
+				n= sprintf (cmd+j,  "aa%d", i);	
+				j+=n;
+				p++;
+			} else {
+				cmd[j++] = *p;					
+			}
+		break;
+		default:
+			cmd[j++] = *p;					
+		
+		}
+	     }
 	    reply = redisCommand(c,cmd);
 	    if (!reply) {
 		printf ("got bad reply\n");
@@ -139,13 +164,15 @@ static void docmd (struct config config, int num, char * cmd, int verb) {
 	    }
 	    memcpy(out, reply->str, reply->len);
 	    out[reply->len] = 0;
-	    if (verb) 
+	    if (config->verb) 
 	     printf ("(%s) => %s\n", cmd, reply->str);
+
 	    ok ++;            		
 	    freeReplyObject(reply);
 	}
+   test_cond(ok == config->num);
 
-   test_cond(ok == num);
+   return NULL;
 }
 
 
@@ -165,6 +192,7 @@ int main(int argc, char **argv) {
     int num = 0;
     int verb = 0;
     char * cmd_template;
+    pthread_t thrd[100];
 
     /* Ignore broken pipe signal (for I/O error tests). */
     signal(SIGPIPE, SIG_IGN);
@@ -183,12 +211,13 @@ int main(int argc, char **argv) {
             cfg.unix.path = argv[0];
         } else if (argc >= 1 && !strcmp(argv[0],"-v")) {
 	    verb = 1;
+	    cfg.verb= 1;
         } else if (argc >= 2 && !strcmp(argv[0],"-n")) {
             argv++; argc--;
-	    num = atoi(argv[0]);
+	    cfg.num = atoi(argv[0]);
         } else if (argc >= 2 && !strcmp(argv[0],"-c")) {
             argv++; argc--;
-	    cmd_template = argv[0];
+	    cfg.cmd_template = argv[0];
         } else if (argc >= 1 && !strcmp(argv[0],"--skip-throughput")) {
             throughput = 0;
         } else if (argc >= 1 && !strcmp(argv[0],"--skip-inherit-fd")) {
@@ -199,8 +228,15 @@ int main(int argc, char **argv) {
         }
         argv++; argc--;
     }
+int thread_num = 100;	
+int i;
+	for (i = 0;i<thread_num;i++) {
+		pthread_create(&thrd[i], NULL,  docmd, (void *) &cfg);
+	}
 
-    docmd(cfg, num, cmd_template, verb);
+	for (i = 0;i<thread_num;i++) {
+		pthread_join(thrd[i], NULL);
+	}
 
     printf("ALL TESTS PASSED\n");
     return 0;

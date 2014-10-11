@@ -107,6 +107,7 @@
  * of a single request response, where (a) and (b) handle request from
  * client, while (c) and (d) handle the corresponding response from the
  * server.
+ *
  */
 
 static uint64_t msg_id;          /* message id counter */
@@ -426,6 +427,7 @@ static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struc
 
 	mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
 	if (msg->pos == mbuf->last) {
+		msg->mlen = 0;
 		conn->recv_done(ctx, conn, msg, NULL);
 		return NC_OK;
 	}
@@ -632,6 +634,36 @@ static unsigned int intlen  (unsigned int x) {
 
 }
 
+static bool compare_buf_string (struct msg *msg, struct string * str) {
+	struct mbuf * buf;
+	uint8_t *p, *p1;
+	size_t  clen;
+	buf = STAILQ_FIRST(&msg->mhdr);
+
+	clen = 0;
+	p = buf->pos;
+	p1 = str->data;
+
+	while (*p == *p1 && clen < str->len ) {
+		clen ++;
+		p1++;
+		p ++;
+		if (p > buf->last) {
+			buf = STAILQ_NEXT(buf, next);
+			if (! buf) {
+				break;
+			}
+
+			p = buf->start;
+		}
+	}
+
+	if (clen == str->len) {
+		return true;
+	}
+	return false;
+}
+
 /*
  * msg:old server's reponse
  * pmsg: response's peer msg, request msg
@@ -649,32 +681,47 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
 
 	// msg : which  server->rsp && peer request's status == 2 && PARSED_OK
-	if (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR) {
-		// will go on, for more readable
-	} else {
+	if (! (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR)
+		){
+
 		return false;
 	}
 
 	//check peer msg
-	//why a empty msg here ?
+	buf = STAILQ_FIRST(&msg->mhdr);
+
 	pmsg = TAILQ_FIRST(&conn->omsg_q);
 	if (!pmsg) {
-	   msg_put(pmsg);
-	   log_error("a empty msg found %p\n", msg);
+		//stray msg
+	   log_error("response msg content is '%.*s', a  empty peer msg found %p\n",  (size_t ) (buf->last - buf->pos), buf->pos);
 	   return false;
 	}
 
-	if ((pmsg->transfer_status == MSG_STATUS_TRANSING) && !pmsg->redirect) {
-		// will go on, for more readable
-	} else {
+	if (! (pmsg->transfer_status == MSG_STATUS_TRANSING  && ! pmsg->redirect)) {
 		return false;
 	}
 
-	//check buf->pos
-	buf = STAILQ_FIRST(&msg->mhdr);
+
+	if (compare_buf_string(msg, &redirect_msg_2)) {
+		redirect_msg_type = REDIRECT_TYPE_BUCKET_TRANS_DONE;
+		log_debug(LOG_VVERB, "redirect msg %p match type2 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_2.len, buf->pos,
+				(size_t ) (buf->last - buf->pos), msg->owner->err);
+	} else if (compare_buf_string(msg, &redirect_msg_1)) {
+		redirect_msg_type = REDIRECT_TYPE_KEY_TRANSFERING;
+
+		log_debug(LOG_VVERB, "redirect msg %p match type1 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_1.len, buf->pos,
+				(size_t ) (buf->last - buf->pos), msg->owner->err);
+
+	} else {
+		//a normal error, no direct
+		return false;
+	}
+
+
+	/*
 	if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
 			redirect_msg_type = REDIRECT_TYPE_BUCKET_TRANS_DONE;
-			//msg->owner->err = 0; //reset the error to 0
+
 		log_debug(LOG_VVERB, "redirect msg %p match type2 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_2.len, buf->pos,
 				(size_t ) (buf->last - buf->pos), msg->owner->err);
 	} else	if ((buf->last - buf->pos) >= redirect_msg_1.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_1.data, redirect_msg_1.len)) {
@@ -687,10 +734,12 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 		//a normal error, no direct
 		return false;
 	}
+	*/
 
 	ASSERT(pmsg != NULL && pmsg->peer == NULL);
 	ASSERT(pmsg->request && !pmsg->done);
-	/* DROP OLD-SERVER RESPONSE*/
+
+	/* DROP OLD-SERVER REQUEST*/
 	conn->dequeue_outq(ctx, conn, pmsg);
 
 	log_debug(LOG_VVERB, "redirect msg %p id %"PRIu64"", msg, msg->id);
@@ -732,7 +781,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	//try to parse next response in msg
 	redirect_splitrsp(ctx, conn, msg);
 
-	//redirect request msg
+	/* SEND REQUEST TO NEW SERVER*/
 	req_redirect(ctx, c_conn, pmsg); //wrapper of req_forward
 	return true;
 }
@@ -1038,7 +1087,7 @@ msg_send(struct context *ctx, struct conn *conn)
     struct msg *msg;
 
     if (! conn->send_active) {
-    	log_error ("fetal error:'proxy:%d client:%d rmsg:%p smsg:%p sd:%d'", conn->proxy, conn->client, conn->rmsg, conn->smsg, conn->sd);
+    	log_error ("fetal error:conn %p 'proxy:%d client:%d rmsg:%p smsg:%p sd:%d'", conn, conn->proxy, conn->client, conn->rmsg, conn->smsg, conn->sd);
     }
 
     ASSERT(conn->send_active);
