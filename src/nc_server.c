@@ -721,7 +721,7 @@ server_pool_hash(struct server_pool *pool, uint8_t *key, uint32_t keylen)
  * get  the server of the key
  */
 struct server *
-server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, bool redirect)
+server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, int redirect)
 {
     struct server *server;
     uint32_t hash, idx;
@@ -747,7 +747,7 @@ server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, bool
     case DIST_MODHASH:
         hash = server_pool_hash(pool, key, keylen);
 
-        if (redirect) {
+        if (redirect > 0) {
         	idx = modhash_dispatch_newserver(pool->continuum, pool->ncontinuum, hash);
         } else {
         	idx = modhash_dispatch(pool->continuum, pool->ncontinuum, hash);
@@ -790,7 +790,7 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
     /* REDIRECT: CLIENT->PROXY-(*)->OLDSERERR->PROXY->NEWSERVER->PROXY */
     if (server->owner->status == SERVER_STATUS_TRANSING &&
     	  server->owner->dist_type == DIST_MODHASH &&
-    	  0 == msg->redirect
+    	   msg->redirect < MAX_REDIRECT_TIMES
     	  ) {
     	uint32_t hash = server_pool_hash(pool, key, keylen);
     	msg->transfer_status = modhash_transfer_status(pool->continuum, pool->ncontinuum, hash);
@@ -847,6 +847,7 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
             server->pname.len  = (uint32_t)nc_strlen(server->mif.new_pname);
             server->name.data = (uint8_t*)server->mif.new_name;
             server->name.len  = (uint32_t)nc_strlen(server->mif.new_name);
+            log_error ("do reload %.*s", server->name.len, server->name.data);
 
             struct server_pool *tpool= server->owner;
             while(!TAILQ_EMPTY(&server->s_conn_q)){
@@ -1884,6 +1885,7 @@ int nc_is_valid_instance(char *inst, char *ip, int * port){
 
     // result
     nc_memcpy(ip,inst,ip_len);
+    ip[ip_len] = '\0';
     *port = nc_atoi(inst+ip_len+1,port_len);
 
     if(*port <= 0){
@@ -1896,166 +1898,163 @@ int nc_is_valid_instance(char *inst, char *ip, int * port){
 
 
 
-int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, char *new_instance, char* result){
-    uint32_t n,m,i,j ;
-    struct array *arr = sp_a;
-    int rt;
-    struct string addr;
+int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, char *new_instance, char* result) {
+	uint32_t n, m, i, j;
+	struct array *arr = sp_a;
+	int rt;
+	struct string addr;
 
-    char old_ip[20],new_ip[20];
-    int  old_port,new_port;
-    uint32_t oldsvr_index, newsvr_index;
-    bool is_oldsvr_exist = false;
-    bool is_newsvr_exist = false;
-    struct sockinfo *ski = NULL;
-    char            *new_name  = NULL;
-    char            *new_pname = NULL;
+	char old_ip[20], new_ip[20];
+	int old_port, new_port;
+	uint32_t oldsvr_index, newsvr_index;
+	bool is_oldsvr_exist = false;
+	bool is_newsvr_exist = false;
+	struct sockinfo *ski = NULL;
+	char *new_name = NULL;
+	char *new_pname = NULL;
+	int change_server_num = 0;
 
-    log_debug(LOG_VERB, " in nc_server_change_instance");
+	log_debug(LOG_VERB, " in nc_server_change_instance");
 
-    n = array_n(arr);
+	n = array_n(arr);
 
-    for(i=0;i<n;i++){
-        struct server_pool *sp= array_get(arr,i);
-        //in this server pool
-        if(!strcmp(sp_name, (const char*) sp->name.data)){
-            m = array_n(&sp->server);
+	for (i = 0; i < n; i++) {
+		struct server_pool *sp = array_get(arr, i);
+		//in this server pool
 
-            log_debug(LOG_VERB,"sp name: %s, old inst: %s, new inst:%s \n", sp_name,old_instance, new_instance);
+		if (!strcmp(sp_name, (const char*) sp->name.data)) {
+			m = array_n(&sp->server);
 
-            /* step1: precheck instance format */
-            if(nc_is_valid_instance(old_instance, old_ip, &old_port) != NC_OK || 
-                    nc_is_valid_instance(new_instance, new_ip, &new_port) != NC_OK){
-                log_error("invalid instance config, old instance: %s ,new instance:%s \n",old_instance, new_instance);
-                snprintf(result,1024,"invalid instance info, old instance: %s ,new instance:%s \n",old_instance, new_instance);
-                return NC_ERROR;
-            }
+			//log_debug(LOG_VERB, "sp name: %s, old inst: %s, new inst:%s", sp_name, old_instance, new_instance);
 
-            log_debug(LOG_VERB,"info: old: %s:%d, new: %s:%d\n", old_ip, old_port, new_ip, new_port );
+			/* step1: precheck instance format */
+			if (nc_is_valid_instance(old_instance, old_ip, &old_port) != NC_OK || nc_is_valid_instance(new_instance, new_ip, &new_port) != NC_OK) {
+				log_error("invalid instance config, old instance: %s ,new instance:%s \n", old_instance, new_instance);
+				snprintf(result, STATS_RESULT_BUFLEN, "invalid instance info, old instance: %s ,new instance:%s \n", old_instance, new_instance);
+				return NC_ERROR;
+			}
 
-            //TODO: add new server here
-            rt = NC_OK;
+			//log_debug(LOG_VERB, "info: old: %s:%d, new: %s:%d\n", old_ip, old_port, new_ip, new_port);
 
-            if( rt != NC_OK){
-                log_error("new add server precheck failed: %s\n",sp_name);
-                return NC_ERROR;
-            }
+			// return fail the  new instance   already exists
+			struct server *svr;
+			for (j = 0; j < m; j++) {
+				svr = array_get(&sp->server, j);
+				if (svr->status == 0)
+					continue; //a no use server
+				//check if the new server exist?
 
-            // check the old instance
-            struct server *svr;
-            for( j=0; j<m; j++){
-                svr = array_get(&sp->server, j);
+				if (       ( ! svr->reload_svr && !nc_strncmp(svr->name.data, new_instance, strlen(new_instance)))
+						|| (svr->reload_svr && !nc_strncmp(svr->mif.new_name, new_instance, strlen(new_instance)))) {
+					is_newsvr_exist = true;
+					newsvr_index = j;
+					snprintf(result, STATS_RESULT_BUFLEN, "server %s %s already exits in server pool %s\n", new_instance, svr->name.data, sp_name);
+					return NC_ERROR;
+				}
+			}
 
-                //find the svr need to be replace
-                if(! nc_strncmp( svr->name.data, old_instance, strlen(old_instance)) || 
-                        (svr->reload_svr && !nc_strncmp( svr->mif.new_name, old_instance, strlen(old_instance)))){
-                    is_oldsvr_exist = true;
-                    oldsvr_index = j;
-                    break;
-                }
+			// check the old instance
 
-                //check if the new server exist?
-                if(! nc_strncmp( svr->name.data, new_instance, strlen(new_instance)) || 
-                        (svr->reload_svr && !nc_strncmp( svr->mif.new_name, new_instance, strlen(new_instance)))){
-                    is_newsvr_exist = true;
-                    newsvr_index = j;
-                    snprintf(result,80,"server %s already exits in server pool %s\n",old_instance, sp_name );
-                    return NC_ERROR;
-                }
-            }
+			for (j = 0; j < m; j++) {
+				svr = array_get(&sp->server, j);
+				if (svr->status == 0)
+					continue; //a no use server
+				log_error("%s vs %s", svr->name.data, old_instance);
+				//find the svr need to be replace
+				if (!nc_strncmp(svr->name.data, old_instance, strlen(old_instance))
+						|| (svr->reload_svr && !nc_strncmp(svr->mif.new_name, old_instance, strlen(old_instance)))) {
 
-            if( !is_oldsvr_exist){
-                snprintf(result,80,"cannot find svr %s in server pool %s\n",old_instance, sp_name );
-                return NC_ERROR;
-            }
+					is_oldsvr_exist = true;
+					oldsvr_index = j;
+					change_server_num++;
+					log_debug(LOG_VERB, "start to change server");
+					ASSERT(svr);
 
-            log_debug(LOG_VERB,"check ok, start to change.\n");
-            ASSERT(svr);
+					/* sockinfo */
 
-            // first change the content of svr, then close all the connections of svr
-            //
-            /* sockinfo */
+					ski = (void *) nc_alloc(sizeof(struct sockinfo));
+					if (!ski) {
+						return NC_ENOMEM;
+					}
 
-            ski = (void *)nc_alloc(sizeof(struct sockinfo));
-            if( !ski){
-                return NC_ENOMEM;
-            }
+					new_name = (void *) nc_alloc(1024);
+					if (!new_name) {
+						nc_free(ski);
+						return NC_ENOMEM;
+					}
 
-            new_name = (void *) nc_alloc(1024);
-            if( !new_name ){
-                nc_free(ski);
-                return NC_ENOMEM;
-            }
+					new_pname = (void *) nc_alloc(1024);
+					if (!new_pname) {
+						nc_free(ski);
+						nc_free(new_name);
+						return NC_ENOMEM;
+					}
 
-            new_pname = (void *) nc_alloc(1024);
-            if( !new_pname ){
-                nc_free(ski);
-                nc_free(new_name);
-                return NC_ENOMEM;
-            }
+					snprintf(new_pname, STATS_RESULT_BUFLEN, "%s:1 %s %d-%d %d", new_instance, svr->app.data, svr->seg_start, svr->seg_end, svr->status);
+					snprintf(new_name, STATS_RESULT_BUFLEN, "%s:%d", new_ip, new_port);
 
+					string_init(&addr);
+					rt = string_copy(&addr, (uint8_t *) new_ip, (uint32_t) strlen(new_ip));
+					if (rt != NC_OK) {
+						goto err;
+					}
 
-            snprintf(new_pname,1024,"%s:1 %s %d-%d %d",new_instance, svr->app.data, svr->seg_start, svr->seg_end, svr->status);
-            snprintf(new_name,1024,"%s:%d",new_ip,new_port );
+					rt = nc_resolve(&addr, new_port, ski);
+					if (rt != NC_OK) {
+						goto err;
+					}
+					/* step 1 change file*/
+					sp_write_conf_file(sp, i, (int) j, new_pname);
 
-            string_init(&addr);
-            rt = string_copy(&addr, (uint8_t *) new_ip, (uint32_t) strlen(new_ip));
-            if(rt != NC_OK){
-                goto err;
-            }
+					/* save new backend information for main thread to modify, thread lock for safe */
+					pthread_mutex_lock(&svr->mutex);
 
-            rt = nc_resolve(&addr, new_port, ski);
-            if(rt != NC_OK){
-                goto err;
-            }
+					// step 2: modify the meminfo,and change the reload_svr flag for loading new config
+					if (svr->reload_svr) { /* modify the instance info,but the old modification has not reload,free the svr->mif */
+						nc_free(svr->mif.ski);
+						nc_free(svr->mif.new_name);
+						nc_free(svr->mif.new_pname);
+					} /* else: the prev modification has reload,need not to free the old mif info */
 
-            // step 1: first write new config file
-            sp_write_conf_file(sp, i, (int) j, new_pname);
+					svr->mif.ski = ski;
+					svr->mif.new_name = new_name;
+					svr->mif.new_pname = new_pname;
+					svr->reload_svr = true;
 
-            /* save new backend information for main thread to modify, thread lock for safe */
-            pthread_mutex_lock(&svr->mutex);
+					pthread_mutex_unlock(&svr->mutex);
 
-            // step 2: modify the meminfo,and change the reload_svr flag for loading new config
-            if( svr->reload_svr){  /* modify the instance info,but the old modification has not reload,free the svr->mif */
-                nc_free(svr->mif.ski);
-                nc_free(svr->mif.new_name);
-                nc_free(svr->mif.new_pname);
-            }  /* else: the prev modification has reload,need not to free the old mif info */
+				}
+			}
 
-            svr->mif.ski = ski;
-            svr->mif.new_name = new_name;
-            svr->mif.new_pname= new_pname;
-            svr->reload_svr = true;
+			if (change_server_num > 0) {
+				snprintf(result, STATS_RESULT_BUFLEN, "change %d banckends from ' %s ' to  ' %s ' success.\n", change_server_num, old_instance, new_instance);
+				return NC_OK;
+			} else   {
+				snprintf(result, STATS_RESULT_BUFLEN, "cannot find svr %s in server pool %s\n", old_instance, sp_name);
+				return NC_ERROR;
+			}
 
-            pthread_mutex_unlock(&svr->mutex);
+		}
+	}
 
-            snprintf(result, 1024, "change banckends from ' %s ' to  ' %s ' success.\n",old_instance, new_instance);
-            loga("change sucess: %s\n",result);
-            return NC_OK;
+	// not found the config
+	if (!is_oldsvr_exist) {
+		snprintf(result, STATS_RESULT_BUFLEN, "cannot find svr %s in server pool %s\n", old_instance, sp_name);
+	} else {
+		snprintf(result, STATS_RESULT_BUFLEN, "cannot find redis pool %s\n", sp_name);
+	}
+	err: if (ski) {
+		nc_free(ski);
+	}
+	if (new_name) {
+		nc_free(new_name);
+	}
+	if (new_name) {
+		nc_free(new_pname);
+	}
 
-        }
-    }
-
-    // not found the config
-    if( !is_oldsvr_exist){
-        snprintf(result,80,"cannot find svr %s in server pool %s\n",old_instance, sp_name );
-    }else{
-        snprintf(result,80,"cannot find redis pool %s\n",sp_name );
-    }
-err:
-    if(ski)
-    {
-        nc_free(ski);
-    }
-    if(new_name)
-    {
-        nc_free(new_name);
-    }
-    if(new_name)
-    {
-        nc_free(new_pname);
-    }
-    return NC_ERROR;
+	snprintf(result, STATS_RESULT_BUFLEN, "change svrver failed\n");
+	return NC_ERROR;
 
 }
 

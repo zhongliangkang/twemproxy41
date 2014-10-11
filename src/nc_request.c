@@ -628,7 +628,7 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
 
     /* enqueue message (request) into client outq, if response is expected */
     /* if msg is a redirect msg, it was in the outq, and not need add one more time */
-    if (!msg->noreply && ! msg->redirect) {
+    if (!msg->noreply && 0 == msg->redirect) {
         c_conn->enqueue_outq(ctx, c_conn, msg);
     }
 

@@ -63,6 +63,8 @@ typedef uint32_t (*hash_t)(const char *, size_t);
 
 #define MODHASH_TOTAL_KEY  420000      /* total hash keys: 42w */
 
+#define MAX_REDIRECT_TIMES 10
+
 #define MSG_STATUS_NOTRANS  1   /*   */
 #define MSG_STATUS_TRANSING 2   /*   */
 #define MSG_STATUS_TRANSED  3   /*   */
@@ -189,7 +191,7 @@ rstatus_t server_pool_preconnect(struct context *ctx);
 void server_pool_disconnect(struct context *ctx);
 rstatus_t server_pool_init(struct array *server_pool, struct array *conf_pool, struct context *ctx);
 void server_pool_deinit(struct array *server_pool);
-struct server * server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, bool redirect);
+struct server * server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, int redirect);
 
 
 

@@ -826,7 +826,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 		return NC_ERROR;
 	}
 
-	memset(recv_command, 0, sizeof(recv_command));
+	//memset(recv_command, 0, sizeof(recv_command));
 	n = recv(sd, recv_command, 80, 0);
 	if (n >= 2 && recv_command[n - 2] == CR && recv_command[n - 1] == LF) {
 		recv_command[n - 2] = recv_command[n - 1] = 0;
@@ -855,6 +855,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 			else
 				break;
 		}
+
 		cmd_p[n_field++] = key_point;
 	}
 
@@ -950,6 +951,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 	 */
 
 	else if (!strcmp(cmd_p[0], "change") && n_field == 4) { /* change status */
+		log_error ("change %s %s %s", cmd_p[1], cmd_p[2], cmd_p[3]);
 		rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
 
 		if (rt != NC_OK) {

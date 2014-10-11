@@ -427,8 +427,10 @@ static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struc
 
 	mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
 	if (msg->pos == mbuf->last) {
-		msg->mlen = 0;
-		conn->recv_done(ctx, conn, msg, NULL);
+		//msg->mlen = 0;
+		//conn->recv_done(ctx, conn, msg, NULL); 		//just do   conn->rmsg = nmsg; rsp_put(msg);
+		conn->rmsg = NULL;
+		rsp_put(msg);
 		return NC_OK;
 	}
 
@@ -697,7 +699,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	   return false;
 	}
 
-	if (! (pmsg->transfer_status == MSG_STATUS_TRANSING  && ! pmsg->redirect)) {
+	if (! (pmsg->transfer_status == MSG_STATUS_TRANSING  &&   pmsg->redirect < MAX_REDIRECT_TIMES)) {
 		return false;
 	}
 
@@ -714,6 +716,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	} else {
 		//a normal error, no direct
+		log_debug(LOG_VVERB, "a normal msg");
 		return false;
 	}
 
@@ -744,7 +747,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	log_debug(LOG_VVERB, "redirect msg %p id %"PRIu64"", msg, msg->id);
 	/* pmsg is the request of client, we send it to new server*/
-	pmsg->redirect = 1; //do not redirect again
+	pmsg->redirect ++; //do not redirect again
 	pmsg->redirect_type = redirect_msg_type;
 	pmsg->error = 0;    //may be no use
 
@@ -1087,7 +1090,8 @@ msg_send(struct context *ctx, struct conn *conn)
     struct msg *msg;
 
     if (! conn->send_active) {
-    	log_error ("fetal error:conn %p 'proxy:%d client:%d rmsg:%p smsg:%p sd:%d'", conn, conn->proxy, conn->client, conn->rmsg, conn->smsg, conn->sd);
+    	log_error ("fetal error: conn %p 'proxy:%d client:%d rmsg:%p smsg:%p sd:%d' send_bytes:%d, recv_bytes:%d",
+    			conn, conn->proxy, conn->client, conn->rmsg, conn->smsg, conn->sd, conn->send_bytes, conn->recv_bytes);
     }
 
     ASSERT(conn->send_active);
