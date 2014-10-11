@@ -78,12 +78,8 @@ void print_reply_info(char *cmd, redisReply * reply) {
 	}	
 
 
-    if(reply->str){
-        printf("'%s'\t return len: %d type:%d() elems:%zd str:'%s'\n", cmd, reply->len, reply->type,
+        printf("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type,
                 reply->elements, reply->str);
-    }else{
-        fprintf(stderr, "cmd:%s ,return len: %d, type:%d, str:'%s'\n",cmd,reply->len,reply->type,reply->str);
-    }
 
 
 	switch (reply->type) {
@@ -293,9 +289,9 @@ void check_reply_and_free(redisReply * reply){
 
 int check_reply_ok_and_free(redisInfo *ri,const char * cmd, redisReply * reply){
     int ret = check_reply_ok(reply);
-    check_reply_and_free(reply);
 
     print_reply_info_with_redisinfo(ri, cmd, reply);
+    check_reply_and_free(reply);
     return ret;
 }
 

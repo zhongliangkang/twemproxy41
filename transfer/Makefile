@@ -117,7 +117,7 @@ create_key: create_key.o $(STLIBNAME)
 	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
 
 docmd: docmd.o $(STLIBNAME)
-	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
+	$(CC) -pthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
 
 transfer: transfer.o $(STLIBNAME) 
 	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
