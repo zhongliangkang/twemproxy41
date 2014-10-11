@@ -699,9 +699,11 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	   return false;
 	}
 
-	if (! (pmsg->transfer_status == MSG_STATUS_TRANSING  &&   pmsg->redirect < MAX_REDIRECT_TIMES)) {
+
+	if (! pmsg->transfer_status == MSG_STATUS_TRANSING) {
 		return false;
 	}
+
 
 
 	if (compare_buf_string(msg, &redirect_msg_2)) {
@@ -720,6 +722,11 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 		return false;
 	}
 
+	if ( pmsg->redirect >= MAX_REDIRECT_TIMES) {
+		pmsg->error = 1;
+		pmsg->err = ETIME;
+		return false;
+	}
 
 	/*
 	if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
