@@ -137,7 +137,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
         check_reply_and_free(reply);
     }else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
 		printf("ERR: dst lockkey %s failed\n", cmd);
-        goto ERR_UNLOCK_DST_KEY;
+        goto ERROR_UNLOCK_KEY;
     }
 
 	//rclock ok  or key is locking.
@@ -150,7 +150,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
         check_reply_and_free( reply);
     }else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
 		printf("ERR: src lockkey %s failed\n", cmd);
-        goto ERR_UNLOCK_SRC_KEY;
+        goto ERROR_UNLOCK_KEY;
     }
 
 	// rclock ok or key is locking.
@@ -221,33 +221,47 @@ The command returns -1 if the key exists but has no associated expire.
 
 UNLOCK_KEY:
 
-//TODO rclock key at dst
+    // rcunlock key at dst. dst cannot be error!
 	snprintf(cmd, max_cmd_length, "rcunlockkey %s", keyname);
 	reply = redisCommand(dst->rd, "rcunlockkey %b" , keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
-		return REDIS_ERR;
-	}
-	print_reply_info(cmd, reply);
-	freeReplyObject(reply);
+        goto ERROR_UNLOCK_KEY;
+	}else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
+		printf("ERR: dst lockkey %s failed\n", cmd);
+        goto ERROR_UNLOCK_KEY;
+    }
 
+  
+    // unlock key at src, maybe fail
 	snprintf(cmd, max_cmd_length, "rctransendkey %s", keyname);
 	//TODO rclock key at src
 	reply = redisCommand(src->rd, "rctransendkey %b" , keyname, keyname_len);
 	if (!reply) {
 		printf("ERR: %s failed\n", cmd);
-		return REDIS_ERR;
-	}
-	print_reply_info(cmd, reply);
-	freeReplyObject(reply);
+	}else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
+		printf("ERR: src lockkey %s failed\n", cmd);
+    }
 
 	return REDIS_OK;
 
-ERR_UNLOCK_SRC_KEY:
-
-
-
-ERR_UNLOCK_DST_KEY:
+ERROR_UNLOCK_KEY:
+    // rcunlock key at dst. dst cannot be error!
+	snprintf(cmd, max_cmd_length, "rcunlockkey %s", keyname);
+	reply = redisCommand(dst->rd, "rcunlockkey %b" , keyname, keyname_len);
+	if (!reply) {
+		printf("ERROR_UNLOCK_KEY unlock dst : %s reply is null\n", cmd);
+	}else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
+		printf("ERROR_UNLOCK_KEY unlock dst : %s failed\n", cmd);
+    }
+  
+	//TODO rclock key at src
+	reply = redisCommand(src->rd, "rcunlockkey %b" , keyname, keyname_len);
+	if (!reply) {
+		printf("ERROR_UNLOCK_KEY unlock src : %s reply is null\n", cmd);
+	}else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
+		printf("ERROR_UNLOCK_KEY unlock src : %s failed\n", cmd);
+    }
 
     return REDIS_ERR;
 }
@@ -275,6 +289,13 @@ int check_reply_ok(redisReply * reply){
     return REDIS_ERR;
 }
 
+int check_reply_nil(redisReply * reply){
+    if (reply && reply->type == REDIS_REPLY_NIL) {
+        return REDIS_OK;
+	}
+    return REDIS_ERR;
+}
+
 int check_reply_status_str(redisReply * reply, char * str){
     if (reply && 
             reply->type == REDIS_REPLY_STATUS && 
@@ -293,12 +314,11 @@ void check_reply_and_free(redisReply * reply){
 
 int check_reply_ok_and_free(redisInfo *ri,const char * cmd, redisReply * reply){
     int ret = check_reply_ok(reply);
+    print_reply_info_with_redisinfo(ri, cmd, reply);
     check_reply_and_free(reply);
 
-    print_reply_info_with_redisinfo(ri, cmd, reply);
     return ret;
 }
-
 
 void* dojob(void * ptr) {
 	transInfo *t = (transInfo *) ptr;
@@ -331,6 +351,11 @@ void* dojob(void * ptr) {
 		status = transfer_bucket(t);
 		if (status != REDIS_OK) {
 			//TODO
+            pthread_mutex_lock(&t->job->mutex);
+
+            // error found.
+            t->job->err = 1;
+            pthread_mutex_unlock(&t->job->mutex);
 		}
 
 
@@ -342,6 +367,13 @@ void* dojob(void * ptr) {
 	return 0;
 }
 
+void log_err(const char * errstr){
+    printf("[ ERROR ] at %s:%d ,err info: %s\n",__FILE__,__LINE__,errstr);
+}
+
+void log_info(const char * errstr){
+    printf("[ info ] at %s:%d ,info: %s\n",__FILE__,__LINE__,errstr);
+}
 
 int transfer_bucket(void * ptr) {
 	/*
@@ -355,9 +387,10 @@ int transfer_bucket(void * ptr) {
 	char cmd[1024];
 	int keys_len, i,n , status;
 	redisReply *keys; // store keys of bucket;
-    redisReply *repl;
+    redisReply *repl, *repl2;
 	char *keyname = NULL;
-	size_t keyname_size = 0;
+
+    char *bucket_transfering = "transfering";
 
 
 	src = &t->src;
@@ -373,6 +406,7 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(src->rd, "rctransserver out");
 
     if( check_reply_ok_and_free(src, "rctransserver out",repl) != REDIS_OK){
+        log_err("rctransserver out");
         goto err;
     }
 
@@ -380,24 +414,99 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(dst->rd, "rctransserver in");
     if( check_reply_ok_and_free(dst, "rctransserver in" ,repl) != REDIS_OK){
         printf("trans in failed: %d\n",bucketid);
+        log_err("rctransserver in");
         goto err;
     }
 
 	n = snprintf(cmd, max_cmd_length, "rctransbegin %d %d", bucketid, bucketid);
 
 	repl = redisCommand(src->rd, cmd);
-    if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
-        printf("trans in failed: %d\n",bucketid);
+
+    if( check_reply_status_str(repl, bucket_transfering) == REDIS_OK ){
+        // bucket is locking in src. how to do?
+        log_info("bucket is locking in src");
+        check_reply_and_free(repl);
+    }else if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
+        printf("transbegin src failed: %d\n",bucketid);
+        log_err(cmd);
         goto err;
     }
     
 
 	repl = redisCommand(dst->rd, cmd);
-    if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
+    if( check_reply_status_str(repl, bucket_transfering) == REDIS_OK ){
+        // bucket is locking in src. how to do?
+        log_info("bucket is locking in dst");
+        check_reply_and_free(repl);
+    }else if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
+        printf("transbegin dst failed: %d\n",bucketid);
+        log_err(cmd);
         goto err;
     }
-    
 
+    // check if there is locking key src
+	snprintf(cmd, max_cmd_length, "rcgetlockingkey %d", bucketid);
+    repl = redisCommand(src->rd, cmd);
+
+    if( check_reply_nil(repl) == REDIS_OK ){
+        check_reply_and_free(repl);  // nil, no key locking
+    }else if(repl && repl->type == REDIS_REPLY_STRING ){
+        printf("src locking key found: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        // key found, unlock it.
+        snprintf(cmd, max_cmd_length, "rcunlockkey \"%s\"", repl->str);
+
+
+        // TODO: if we need to check again here?!  maybe need.
+        repl2 = redisCommand(src->rd, "rcunlockkey %b" , repl->str, repl->len);
+        if( check_reply_ok_and_free(src, cmd, repl2) != REDIS_OK ){
+            log_err(cmd);
+            printf("rcunlockkey src failed: %d\n",bucketid);
+
+            check_reply_and_free(repl); 
+            goto err;
+        }
+
+        // free repl
+        check_reply_and_free(repl); 
+    }else{
+        // error return.
+        log_err(cmd);
+        printf("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        goto err;
+    }
+
+    // check if there is locking key dst
+	snprintf(cmd, max_cmd_length, "rcgetlockingkey %d", bucketid);
+    repl = redisCommand(dst->rd, cmd);
+
+    if( check_reply_nil(repl) == REDIS_OK ){
+        check_reply_and_free(repl);  // nil, no key locking
+    }else if(repl && repl->type == REDIS_REPLY_STRING ){
+        printf("dst locking key found: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        // key found, unlock it.
+        snprintf(cmd, max_cmd_length, "rcunlockkey \"%s\"", repl->str);
+
+
+        // TODO: if we need to check again here?!  maybe need.
+        repl2 = redisCommand(dst->rd, "rcunlockkey %b" , repl->str, repl->len);
+        if( check_reply_ok_and_free(dst, cmd, repl2) != REDIS_OK ){
+            log_err(cmd);
+            printf("rcunlockkey dst failed: %d\n",bucketid);
+
+            check_reply_and_free(repl); 
+            goto err;
+        }
+
+        // free repl
+        check_reply_and_free(repl); 
+    }else{
+        // error return.
+        log_err(cmd);
+        printf("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        goto err;
+    }   
+
+    // get all the keys to transfer from src.
 	snprintf(cmd, max_cmd_length, "hashkeys %d *", bucketid);
 	keys = redisCommand(src->rd, cmd);
 
@@ -405,12 +514,13 @@ int transfer_bucket(void * ptr) {
 	if (!keys) {
 		//todo add a check
         printf("cannot find keys: %d\n",bucketid);
+        log_err(cmd);
 		goto err;
 	}
 	keys_len = keys->elements;
 	t->bucket->key_num = keys->elements;
 
-
+    // process each key
 	for (i = 0; i < keys_len; i++) {
 
 		status = trans_string(src, dst, keys->element[i]->str, keys->element[i]->len);
@@ -433,17 +543,18 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(src->rd, cmd);
     if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
         printf("trans end failed: %d\n",bucketid);
+        log_err(cmd);
         goto err;
     }
     
 	repl = redisCommand(dst->rd, cmd);
     if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
         printf("trans end dst failed: %d\n",bucketid);
+        log_err(cmd);
         goto err;
     }
     
     repl = NULL;
-
 
 	return REDIS_OK;
 
@@ -532,9 +643,11 @@ int main(int argc, char **argv) {
 	pthread_t thrd[100];
 	transInfo task[100];
 
-	char add_cmd[max_cmd_length], add_buf[max_cmd_length];
+	char add_cmd[max_cmd_length], add_buf[max_cmd_length], redis_cmd[max_cmd_length];
 
 	int thread_num = 10;
+
+    redisReply * reply;
 
 	redisInfo proxylist[100]; //TODO use array
 	int proxylist_len = 0;
@@ -665,6 +778,34 @@ int main(int argc, char **argv) {
 	for (i = 0;i<thread_num;i++) {
 		pthread_join(thrd[i], NULL);
 	}
+
+
+    /* if this bucket is the last bucket, we should run rccastransend to check if all the bucket transfered.
+       here we consider maybe rccastransend would return a error result if the redis is transfer 2 segment the same time.
+       but we donot look it as fail, but we give a warning that there maybe another transfer running on that redis.
+
+       so we just run rccastransend and record it's feedback.
+       */
+    // run rccastransend src
+    snprintf(redis_cmd, max_cmd_length, "rccastransend");
+
+    // here we use the src/dst sock of task[0], it should be ok.
+    reply = redisCommand(task[0].src.rd , redis_cmd );
+
+    if(check_reply_ok_and_free(&task[0].src, redis_cmd, reply) != REDIS_OK){
+        log_err("src rccastransend error.");
+    }else{
+        log_err("src rccastransend OK.");
+    }
+    
+    // run rccastransend dst
+    reply = redisCommand(task[0].dst.rd , redis_cmd );
+
+    if(check_reply_ok_and_free(&task[0].dst, redis_cmd, reply) != REDIS_OK){
+        log_err("dst rccastransend error.");
+    }else{
+        log_err("dst rccastransend OK.");
+    }
 
 	//send_twemproxy_ add command
 	for (i=0;i<proxylist_len;i++) {
