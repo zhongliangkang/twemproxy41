@@ -392,6 +392,14 @@ int transfer_bucket(void * ptr) {
 	dst = &t->dst;
 	bucketid = t->bucket->bucket_id;
 
+    /* 
+    //for test
+    if(bucketid == 419999 ){
+        fprintf(stderr,"now process bucket 419999. sleep 100.\n");
+        sleep(10);
+    }
+    */
+
 	assert(   src->rd &&  dst->rd);
 	assert(bucketid >=0 || bucketid < MODHASH_TOTAL_KEY );
 
