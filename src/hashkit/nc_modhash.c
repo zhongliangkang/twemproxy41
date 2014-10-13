@@ -47,6 +47,11 @@ modhash_update(struct server_pool *pool)
     uint32_t pool_old_status ;
     bool first_init = false;       /* is first_init ?*/
     pool_old_status =  pool->status;
+    uint32_t i;
+
+    struct continuum   *continuum_temp;
+
+
 
 //    bool    keys_flag[MODHASH_TOTAL_KEY];
  //   memset(keys_flag, 0, sizeof(keys_flag));
@@ -68,6 +73,7 @@ modhash_update(struct server_pool *pool)
        log_error("there may be some error in the config file.");
        return NC_ERROR;
     }
+
 
     nserver = array_n(&pool->server);
    // log_debug(LOG_VERB,"found n servers in modhash_update: %ld . keys_flag: %d\n",nserver, sizeof(keys_flag));
@@ -115,6 +121,16 @@ modhash_update(struct server_pool *pool)
               "%"PRIu32" '%.*s'", nlive_server, nserver, pool->idx,
               pool->name.len, pool->name.data);
 
+
+    continuum_temp = nc_alloc(sizeof(struct continuum) * MODHASH_TOTAL_KEY);
+    if (continuum_temp == NULL) {
+	   return NC_ENOMEM;
+    }
+
+    if (pool->ncontinuum == MODHASH_TOTAL_KEY) {
+    	memcpy(continuum_temp, pool->continuum, sizeof(struct continuum) * MODHASH_TOTAL_KEY) ;
+    }
+
     continuum_addition = 0;
     points_per_server = MODULA_POINTS_PER_SERVER;
 
@@ -151,10 +167,9 @@ modhash_update(struct server_pool *pool)
         }
 
 		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
-			pool->continuum[idx].index = server_index;
-			pool->continuum[idx].value = 0;
-			pool->continuum[idx].status = CONTINUUM_STATUS_NOTRANS;
-			//pool->continuum[idx].newindex = 0; //new index
+			 continuum_temp[idx].index = server_index;
+			 continuum_temp[idx].value = 0;
+			 continuum_temp[idx].status = CONTINUUM_STATUS_NOTRANS;
 
 			pointer_counter += pointer_per_server;
 		 }
@@ -178,15 +193,36 @@ modhash_update(struct server_pool *pool)
          }
 
    		 for (idx = server->seg_start; idx <= server->seg_end; idx++) {
-   			pool->continuum[idx].newindex = server_index;
-   			pool->continuum[idx].status = CONTINUUM_STATUS_TRANSING;
+   			continuum_temp[idx].newindex = server_index;
+   			continuum_temp[idx].status = CONTINUUM_STATUS_TRANSING;
    			pointer_counter_status2 += pointer_per_server;
    		 }
    		pool_transfer_status = 2;
     }
 
+
+    /*
+     * status NOTRANS->TRANSING
+     * old server no modify
+     * set new server
+     * set status
+     *
+     * status TRANSING -> NOTRANS
+     * new server no modify
+     * old server -> new server
+     * set status
+     */
+    for (i=0;i<MODHASH_TOTAL_KEY;i++) {
+    	 pool->continuum[i].newindex = continuum_temp[i].newindex  ;
+    	 pool->continuum[i].index = continuum_temp[i].index  ;
+    	 pool->continuum[i].status  =  continuum_temp[i].status;
+    	 pool->continuum[i].value = 0;
+    }
+
 	pool->ntrans_continuum = pointer_counter_status2;
 	pool->status = pool_transfer_status;
+
+	nc_free(continuum_temp);
 
 	if (pool_old_status != pool_transfer_status) {
 		log_error("pool %.*s status changed from %d to %d", pool->name.len, pool->name.data, pool_old_status, pool_transfer_status);
