@@ -1219,6 +1219,8 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		return rt;
 	}
 
+
+
 	/* find status = 2 line*/
 	int dstsvr_idx = - 1;
 	int dstsvr_num = 0;
@@ -1240,7 +1242,7 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 			dstsvr_num ++;
 			if (s->status == 1) {
 				dstsvr_num_badstatus ++;
-				snprintf(result, STATS_RESULT_BUFLEN,"bad status, server %s %d (shouldbe 2) ", s->name.data, s->status);
+				snprintf(result, STATS_RESULT_BUFLEN,"a same name server with status %d exists %s ", s->status, s->name.data);
 				log_error(result);
 				return NC_ERROR;
 			}
@@ -1270,6 +1272,12 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		return NC_ERROR;
 	}
 
+
+    if(NC_OK != server_check_hash_keys(pool, NULL) ){
+    	snprintf(result, STATS_RESULT_BUFLEN,"server_check_hash_keys check failed");
+    	log_error(result);
+    	return NC_ERROR;
+    }
 
 
 	pthread_mutex_lock(&pool->mutex);
@@ -1373,10 +1381,6 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 
 	}
 
-	//nc_update_server(pool, &tmpsvr, result);
-//	string_deinit ( &tmpsvr.app);
-//	string_deinit ( &tmpsvr.name);
-//	string_deinit ( &tmpsvr.pname);
 
 	/* step3: do update modhash */
 
@@ -1444,6 +1448,8 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 		log_debug(LOG_VERB, "nc_add_a_server:%s %s %s %s %s arg check ok", sp_name, inst, app, segs, status);
 	}
 
+
+
 	//check seg
 	uint32_t server_index;
 	uint32_t nserver = array_n(&pool->server);
@@ -1503,7 +1509,11 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
     }
 
 
-
+    if(NC_OK != server_check_hash_keys(pool, NULL) ){
+     	snprintf(result, STATS_RESULT_BUFLEN,"server_check_hash_keys check failed");
+     	log_error(result);
+     	return NC_ERROR;
+     }
 
 
     pthread_mutex_lock(&pool->mutex);
@@ -1817,51 +1827,68 @@ server_set_new_owner(void * elem, void *data){
 
 rstatus_t server_check_hash_keys(struct server_pool *sp, struct server *newsrv ) {
 	struct server *server;
-	bool * keys_flag;
+	char * keys_flag;
 	uint32_t n_server, i, hash_count;
 	int j;
 
+	char  flag_status_1 = 0x1; //B01
+	char  flag_status_2 = 0x2; //B10
 
-	keys_flag = nc_alloc(sizeof(bool) * MODHASH_TOTAL_KEY);
+	/*
+	 * flag_status_1 = 0x01
+	 * flag_status_2 = 0x10
+	 * */
+
+	keys_flag = nc_alloc(sizeof(char) * MODHASH_TOTAL_KEY);
 	if (! keys_flag) {
 		return NC_ERROR;
 	}
 
-	memset(keys_flag, false, sizeof(bool) * MODHASH_TOTAL_KEY);
+	memset(keys_flag, '0', sizeof(char) * MODHASH_TOTAL_KEY);
 
 	n_server = array_n(&sp->server);
 	hash_count = 0;
 
 	for (i = 0; i < n_server; i++) {
 		server = array_get(&sp->server, i);
-		if (server->status != 1)
-			continue;
-
-		for (j = server->seg_start; j <= server->seg_end; j++) {
-			if (keys_flag[j] == false && j < MODHASH_TOTAL_KEY) {
-				keys_flag[j] = true;
-				hash_count++;
-				//will occur a bus error if a printf
-			} else {
-				// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
-				log_error("error: hash key '%d' has more than one status is 1!\n",j);
-				goto err;
+		if (server->status == SERVER_STATUS_NOTRANS) {
+			for (j = server->seg_start; j <= server->seg_end; j++) {
+				if (!(keys_flag[j] & flag_status_1) && j < MODHASH_TOTAL_KEY) {
+					keys_flag[j] |= flag_status_1;
+					hash_count++;
+					//will occur a bus error if a printf
+				} else {
+					// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
+					log_error("error: hash key '%d' has more than one server in status 1!\n", j);
+					goto err;
+				}
+			}
+		} else if (server->status == SERVER_STATUS_TRANSING) {
+			for (j = server->seg_start; j <= server->seg_end; j++) {
+				if (!(keys_flag[j] & flag_status_2) && j < MODHASH_TOTAL_KEY) {
+					keys_flag[j] |= flag_status_2;
+					//will occur a bus error if a printf
+				} else {
+					// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
+					log_error("error: hash key '%d' has more than one server in status 1!\n", j);
+					goto err;
+				}
 			}
 		}
+
 	}
 
 	if (newsrv) {
 		server = newsrv;
 		for (j = server->seg_start; j <= server->seg_end; j++) {
-					if (keys_flag[j] == false && j < MODHASH_TOTAL_KEY) {
-						keys_flag[j] = true;
-						hash_count++;
-						//will occur a bus error if a printf
-					} else {
-						// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
-						log_error("error: hash key '%d' has more than one status is 1!\n",j);
-						goto err;
-					}
+			if (!(keys_flag[j] & flag_status_2) && j < MODHASH_TOTAL_KEY) {
+				keys_flag[j] |= flag_status_2;
+				//will occur a bus error if a printf
+			} else {
+				// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
+				log_error("error: hash key '%d' has more than one server in status 2!\n", j);
+				goto err;
+			}
 		}
 
 	}
@@ -1872,7 +1899,7 @@ rstatus_t server_check_hash_keys(struct server_pool *sp, struct server *newsrv )
 
 		//print 10 error key
 		for (i = 0, j = 0; i < MODHASH_TOTAL_KEY; i++) {
-			if (keys_flag[i] == false) {
+			if (!(keys_flag[i] & flag_status_1)) {
 				log_error("error: key '%d' has no valid backend.", i);
 				j++;
 			}
@@ -1881,6 +1908,7 @@ rstatus_t server_check_hash_keys(struct server_pool *sp, struct server *newsrv )
 		}
 		goto err;
 	}
+
 	if (keys_flag) {
 		free (keys_flag);
 	}
