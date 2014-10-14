@@ -897,6 +897,8 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 	if (!strcmp(cmd_p[0], "get") && n_field == 3) { /* get config */
 		if (!strcmp(cmd_p[2], "servers")) {
 			rt = sp_get_by_item(cmd_p[1], "server", result, st->p_sp);
+		} else if (!strcmp(cmd_p[2], "transinfo")) {
+			rt = sp_get_by_item(cmd_p[1], "transinfo", result, st->p_sp);
 		} else {
 			rt = conf_get_by_item((uint8_t *) cmd_p[1], (uint8_t *) cmd_p[2], result, st->p_cf);
 		}

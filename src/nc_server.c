@@ -809,11 +809,11 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
 
 	if (1 == msg->redirect && msg->redirect_type == REDIRECT_TYPE_BUCKET_TRANS_DONE) {
 		pthread_mutex_lock(&pool->mutex);
-		log_error("pthread_mutex_lock for modhash_bucket_set_status");
+		//log_error("pthread_mutex_lock for modhash_bucket_set_status");
 		uint32_t hash = server_pool_hash(pool, key, keylen);
 		status = modhash_bucket_set_status(pool->continuum, pool->ncontinuum, hash, CONTINUUM_STATUS_TRANSED, CONTINUUM_STATUS_TRANSING);
 		pthread_mutex_unlock(&pool->mutex);
-		log_error("pthread_mutex_unlock for modhash_bucket_set_status");
+		//log_error("pthread_mutex_unlock for modhash_bucket_set_status");
 		if (status == NC_OK) {
 			log_debug(LOG_VERB, "modhash_transfer_status:key '%.*s' on dist %d transfer_status UPDATE TO %d succ", keylen,
 					key, pool->dist_type, CONTINUUM_STATUS_TRANSED);
@@ -965,10 +965,10 @@ server_pool_run(struct server_pool *pool)
 
     case DIST_MODHASH:
 	    pthread_mutex_lock(&pool->mutex);
-		log_error("pthread_mutex_lock for modhash_update");
+		//log_error("pthread_mutex_lock for modhash_update");
 		rt = modhash_update(pool);
 		pthread_mutex_unlock(&pool->mutex);
-		log_error("pthread_mutex_unlock for modhash_update");
+		//log_error("pthread_mutex_unlock for modhash_update");
         return  rt;
 
     default:
@@ -1273,7 +1273,8 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 
 
 	pthread_mutex_lock(&pool->mutex);
-	log_error("pthread_mutex_lock for migrate segment");
+	//log_error("pthread_mutex_lock for migrate segment");
+
 	//int idx  = -1;
 	nserver = array_n(&pool->server);
 	for (server_index = 0; server_index < nserver; server_index++) {
@@ -1363,7 +1364,7 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		}
 	}
 	pthread_mutex_unlock(&pool->mutex);
-	log_error("pthread_mutex_unlock for migrate segment");
+	//log_error("pthread_mutex_unlock for migrate segment");
 
 	if (rt != NC_OK) {
 
@@ -1380,10 +1381,10 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 	/* step3: do update modhash */
 
     pthread_mutex_lock(&pool->mutex);
-    log_error("pthread_mutex_lock for modhash_update");
+    //log_error("pthread_mutex_lock for modhash_update");
 	rt = modhash_update(pool);
     pthread_mutex_unlock(&pool->mutex);
-    log_error("pthread_mutex_unlock for modhash_update");
+    //log_error("pthread_mutex_unlock for modhash_update");
 
 	if (rt != NC_OK) {
 		log_error("fetal error:modhash_update failed");
@@ -1506,10 +1507,10 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 
 
     pthread_mutex_lock(&pool->mutex);
-	log_error("pthread_mutex_lock for nc_add_new_server");
+	//log_error("pthread_mutex_lock for nc_add_new_server");
 	nc_add_new_server(pool, &tmpsvr, result);
 	pthread_mutex_unlock(&pool->mutex);
-	log_error("pthread_mutex_unlock for nc_add_new_server");
+	//log_error("pthread_mutex_unlock for nc_add_new_server");
 
 	string_deinit ( &tmpsvr.app);
 	string_deinit ( &tmpsvr.name);
@@ -1517,13 +1518,13 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 
 	/* step3: do update modhash */
     pthread_mutex_lock(&pool->mutex);
-	log_error("pthread_mutex_lock for modhash_update");
+	//log_error("pthread_mutex_lock for modhash_update");
 	rt = modhash_update(pool);
 	if (rt == NC_OK) {
 		pool->add_cmd_count ++;
 	}
 	pthread_mutex_unlock(&pool->mutex);
-	log_error("pthread_mutex_unlock for modhash_update");
+	//log_error("pthread_mutex_unlock for modhash_update");
 	if (rt != NC_OK) {
 		log_error("fetal error:modhash_update failed");
 		return NC_ERROR;

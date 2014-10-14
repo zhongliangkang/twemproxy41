@@ -680,13 +680,15 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 	unsigned int redirect_msg_type;
 	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
-	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
-	struct string nil_msg = string("$-1\r\n"); //-BUCKET_TRANS_DONE
+    struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
 
+    /*
+    struct string nil_msg = string("$-1\r\n"); //-BUCKET_TRANS_DONE
 
-	if (compare_buf_string(msg, &nil_msg)) {
-		log_error ("get a nil message from s %d", conn->sd);
-	}
+    if (compare_buf_string(msg, &nil_msg)) {
+        log_error ("[WARN] get a nil message from s %d .", conn->sd);
+    }
+    */
 
 	// msg : which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (! (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR)
@@ -767,6 +769,11 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	pmsg->redirect ++; //do not redirect again
 	pmsg->redirect_type = redirect_msg_type;
 	pmsg->error = 0;    //may be no use
+
+    // we record a warning when the redirect msg more than once
+    if( pmsg->redirect > 1){
+        log_error("[WARN] redirect msg times: %d .\n",pmsg->redirect);
+    }
 
 	mbuflen = 1;
 	mbuf = STAILQ_FIRST(&pmsg->mhdr);

@@ -367,7 +367,7 @@ void log_err(const char * errstr){
 }
 
 void log_info(const char * errstr){
-    printf("[ info ] at %s:%d ,info: %s\n",__FILE__,__LINE__,errstr);
+    printf("[ INFO ] at %s:%d ,info: %s\n",__FILE__,__LINE__,errstr);
 }
 
 int transfer_bucket(void * ptr) {
@@ -392,6 +392,14 @@ int transfer_bucket(void * ptr) {
 	dst = &t->dst;
 	bucketid = t->bucket->bucket_id;
 
+    /* 
+    //for test
+    if(bucketid == 419999 ){
+        fprintf(stderr,"now process bucket 419999. sleep 100.\n");
+        sleep(10);
+    }
+    */
+
 	assert(   src->rd &&  dst->rd);
 	assert(bucketid >=0 || bucketid < MODHASH_TOTAL_KEY );
 
@@ -401,7 +409,7 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(src->rd, "rctransserver out");
 
     if( check_reply_ok_and_free(src, "rctransserver out",repl) != REDIS_OK){
-        log_err("rctransserver out");
+        log_info("rctransserver out");
         goto err;
     }
 
@@ -409,7 +417,7 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(dst->rd, "rctransserver in");
     if( check_reply_ok_and_free(dst, "rctransserver in" ,repl) != REDIS_OK){
         printf("trans in failed: %d\n",bucketid);
-        log_err("rctransserver in");
+        log_info("rctransserver in");
         goto err;
     }
 
@@ -423,7 +431,7 @@ int transfer_bucket(void * ptr) {
         check_reply_and_free(repl);
     }else if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
         printf("transbegin src failed: %d\n",bucketid);
-        log_err(cmd);
+        log_info(cmd);
         goto err;
     }
     
@@ -435,7 +443,7 @@ int transfer_bucket(void * ptr) {
         check_reply_and_free(repl);
     }else if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
         printf("transbegin dst failed: %d\n",bucketid);
-        log_err(cmd);
+        log_info(cmd);
         goto err;
     }
 
@@ -454,7 +462,7 @@ int transfer_bucket(void * ptr) {
         // TODO: if we need to check again here?!  maybe need.
         repl2 = redisCommand(src->rd, "rcunlockkey %b" , repl->str, repl->len);
         if( check_reply_ok_and_free(src, cmd, repl2) != REDIS_OK ){
-            log_err(cmd);
+            log_info(cmd);
             printf("rcunlockkey src failed: %d\n",bucketid);
 
             check_reply_and_free(repl); 
@@ -465,7 +473,7 @@ int transfer_bucket(void * ptr) {
         check_reply_and_free(repl); 
     }else{
         // error return.
-        log_err(cmd);
+        log_info(cmd);
         printf("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
         goto err;
     }
@@ -485,7 +493,7 @@ int transfer_bucket(void * ptr) {
         // TODO: if we need to check again here?!  maybe need.
         repl2 = redisCommand(dst->rd, "rcunlockkey %b" , repl->str, repl->len);
         if( check_reply_ok_and_free(dst, cmd, repl2) != REDIS_OK ){
-            log_err(cmd);
+            log_info(cmd);
             printf("rcunlockkey dst failed: %d\n",bucketid);
 
             check_reply_and_free(repl); 
@@ -496,7 +504,7 @@ int transfer_bucket(void * ptr) {
         check_reply_and_free(repl); 
     }else{
         // error return.
-        log_err(cmd);
+        log_info(cmd);
         printf("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
         goto err;
     }   
@@ -509,7 +517,7 @@ int transfer_bucket(void * ptr) {
 	if (!keys) {
 		//todo add a check
         printf("cannot find keys: %d\n",bucketid);
-        log_err(cmd);
+        log_info(cmd);
 		goto err;
 	}
 	keys_len = keys->elements;
@@ -538,14 +546,14 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(src->rd, cmd);
     if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
         printf("trans end failed: %d\n",bucketid);
-        log_err(cmd);
+        log_info(cmd);
         goto err;
     }
     
 	repl = redisCommand(dst->rd, cmd);
     if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
         printf("trans end dst failed: %d\n",bucketid);
-        log_err(cmd);
+        log_info(cmd);
         goto err;
     }
     
@@ -796,7 +804,7 @@ int main(int argc, char **argv) {
     if(check_reply_ok_and_free(&task[0].src, redis_cmd, reply) != REDIS_OK){
         log_err("src rccastransend error.");
     }else{
-        log_err("src rccastransend OK.");
+        log_info("src rccastransend OK.");
     }
     
     // run rccastransend dst
@@ -805,7 +813,7 @@ int main(int argc, char **argv) {
     if(check_reply_ok_and_free(&task[0].dst, redis_cmd, reply) != REDIS_OK){
         log_err("dst rccastransend error.");
     }else{
-        log_err("dst rccastransend OK.");
+        log_info("dst rccastransend OK.");
     }
 
 	//send_twemproxy_ add command

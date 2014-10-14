@@ -47,6 +47,8 @@
     ACTION( in_queue_bytes,         STATS_GAUGE,        "current request bytes in incoming queue")                  \
     ACTION( out_queue,              STATS_GAUGE,        "# requests in outgoing queue")                             \
     ACTION( out_queue_bytes,        STATS_GAUGE,        "current request bytes in outgoing queue")                  \
+    ACTION( redirect_succ,               STATS_COUNTER,      "# redirect succ")                                     \
+    ACTION( redirect_fail,               STATS_COUNTER,      "# redirect fail, return ETIME")                       \
 
 #define STATS_ADDR      "0.0.0.0"
 #define STATS_PORT      22222
