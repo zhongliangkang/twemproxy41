@@ -2,11 +2,45 @@
 #include <stdlib.h>
 #include <string.h>
 #include <hiredis.h>
+#include <unistd.h>
 #include <assert.h>
 #include <transfer.h>
 
 #define max_cmd_length  100000
+#define LOG_MAX_LEN 102400
 
+#define trans_log(...) do {                                                      \
+        _my_log(__FILE__, __LINE__,  __VA_ARGS__);                         \
+} while (0)
+
+void
+_my_log(const char *file, int line,  const char *fmt, ...)
+{
+    int len, size ;
+    char buf[LOG_MAX_LEN], *timestr;
+    va_list args;
+    struct tm *local;
+    time_t t;
+
+    len = 0;            /* length of output buffer */
+    size = LOG_MAX_LEN; /* size of output buffer */
+
+    t = time(NULL);
+    local = localtime(&t);
+    timestr = asctime(local);
+
+    len += snprintf(buf + len, size - len, "[%.*s] %s:%d ",
+                        (int)strlen(timestr) - 1, timestr, file, line);
+
+    va_start(args, fmt);
+    len += vsnprintf(buf + len, size - len, fmt, args);
+    va_end(args);
+
+    buf[len] = 0;
+
+    write(STDOUT_FILENO, buf, len);
+
+}
 int tcp_connect (char *ip, uint16_t port) {
 
 		struct hostent *host;
@@ -73,12 +107,12 @@ void print_reply_info(char *cmd, redisReply * reply) {
 	 #define REDIS_REPLY_ERROR 6
 	 */
 	if (! cmd || ! reply) {
-		printf ("try to printf a empty cmd or reply\n");	
+		trans_log("try to printf a empty cmd or reply\n");	
 		return ;
 	}	
 
 
-        printf("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type,
+        trans_log("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type,
                 reply->elements, reply->str);
 
 
@@ -92,15 +126,15 @@ void print_reply_info(char *cmd, redisReply * reply) {
 	case REDIS_REPLY_STRING:
 		/*if (reply->len > 0) {
 			for (int j=0;j<reply->len;j++) {
-				printf ("%x:%c\n", j, *(reply->str + j));
+				trans_log("%x:%c\n", j, *(reply->str + j));
 			}
-			printf ("\n");
+			trans_log("\n");
 		}*/
 		break;
 	case REDIS_REPLY_ARRAY:
 		if (reply->type == REDIS_REPLY_ARRAY && reply->elements > 0) {
 			for (j = 0; j < reply->elements; j++) {
-				printf("[%zd] %s\n", j, reply->element[j]->str);
+				trans_log("[%zd] %s\n", j, reply->element[j]->str);
 			}
 		}
 		break;
@@ -132,7 +166,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
         // key is locking in dest. how to do?
         check_reply_and_free(reply);
     }else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
-		printf("ERR: dst lockkey %s failed\n", cmd);
+		trans_log("ERR: dst lockkey %s failed\n", cmd);
         goto ERROR_UNLOCK_KEY;
     }
 
@@ -145,7 +179,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
         // key is locking in dest. how to do?
         check_reply_and_free( reply);
     }else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
-		printf("ERR: src lockkey %s failed\n", cmd);
+		trans_log("ERR: src lockkey %s failed\n", cmd);
         goto ERROR_UNLOCK_KEY;
     }
 
@@ -163,7 +197,7 @@ The command returns -1 if the key exists but has no associated expire.
     print_reply_info(cmd, reply);
     // pttl result mayben null
 	if (!reply) {
-		printf("ERR: do %s failed\n", cmd);
+		trans_log("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
 
@@ -175,7 +209,7 @@ The command returns -1 if the key exists but has no associated expire.
         // if the ttl is 0, the key will expired ,here we add 1 ms for that key ? or just donot restore?
         ttl = 1;
 	}else if(ttl == -2){
-		printf("info: key not found: %s \n", cmd);
+		trans_log("info: key not found: %s \n", cmd);
         // key not exist, maybe ttl or deleted, got unlock.
         goto UNLOCK_KEY;
     }
@@ -188,13 +222,13 @@ The command returns -1 if the key exists but has no associated expire.
 	reply = redisCommand(src->rd, "dump %b" , keyname, keyname_len);
     print_reply_info(cmd, reply);
 	if (!reply) {
-		printf("ERR: do %s failed\n", cmd);
+		trans_log("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
 	print_reply_info(cmd, reply);
 
 	if (reply->type == REDIS_REPLY_NIL) {
-		printf("WARN: get the key %s failed, may be is expired\n", keyname);
+		trans_log("WARN: get the key %s failed, may be is expired\n", keyname);
 	}
 	//set to dst
 	if (reply->type == REDIS_REPLY_STRING) {
@@ -207,7 +241,7 @@ The command returns -1 if the key exists but has no associated expire.
 		print_reply_info(setcmd, reply_set);
 		freeReplyObject(reply_set);
 	} else {
-		printf("ERR: do %s failed, return not a STRING\n", cmd);
+		trans_log("ERR: do %s failed, return not a STRING\n", cmd);
 	}
 
 	if (setcmd) free(setcmd);
@@ -221,10 +255,10 @@ UNLOCK_KEY:
 	snprintf(cmd, max_cmd_length, "rcunlockkey %s", keyname);
 	reply = redisCommand(dst->rd, "rcunlockkey %b" , keyname, keyname_len);
 	if (!reply) {
-		printf("ERR: %s failed\n", cmd);
+		trans_log("ERR: %s failed\n", cmd);
         goto ERROR_UNLOCK_KEY;
 	}else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
-		printf("ERR: dst lockkey %s failed\n", cmd);
+		trans_log("ERR: dst lockkey %s failed\n", cmd);
         goto ERROR_UNLOCK_KEY;
     }
 
@@ -234,9 +268,9 @@ UNLOCK_KEY:
 	//TODO rclock key at src
 	reply = redisCommand(src->rd, "rctransendkey %b" , keyname, keyname_len);
 	if (!reply) {
-		printf("ERR: %s failed\n", cmd);
+		trans_log("ERR: %s failed\n", cmd);
 	}else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
-		printf("ERR: src lockkey %s failed\n", cmd);
+		trans_log("ERR: src lockkey %s failed\n", cmd);
     }
 
 	return REDIS_OK;
@@ -246,17 +280,17 @@ ERROR_UNLOCK_KEY:
 	snprintf(cmd, max_cmd_length, "rcunlockkey %s", keyname);
 	reply = redisCommand(dst->rd, "rcunlockkey %b" , keyname, keyname_len);
 	if (!reply) {
-		printf("ERROR_UNLOCK_KEY unlock dst : %s reply is null\n", cmd);
+		trans_log("ERROR_UNLOCK_KEY unlock dst : %s reply is null\n", cmd);
 	}else if( check_reply_ok_and_free(dst, cmd ,reply) != REDIS_OK){
-		printf("ERROR_UNLOCK_KEY unlock dst : %s failed\n", cmd);
+		trans_log("ERROR_UNLOCK_KEY unlock dst : %s failed\n", cmd);
     }
   
 	//TODO rclock key at src
 	reply = redisCommand(src->rd, "rcunlockkey %b" , keyname, keyname_len);
 	if (!reply) {
-		printf("ERROR_UNLOCK_KEY unlock src : %s reply is null\n", cmd);
+		trans_log("ERROR_UNLOCK_KEY unlock src : %s reply is null\n", cmd);
 	}else if( check_reply_ok_and_free(src, cmd ,reply) != REDIS_OK){
-		printf("ERROR_UNLOCK_KEY unlock src : %s failed\n", cmd);
+		trans_log("ERROR_UNLOCK_KEY unlock src : %s failed\n", cmd);
     }
 
     return REDIS_ERR;
@@ -266,7 +300,7 @@ int docmd (redisInfo *r, const char *cmd) {
 	redisReply * reply;
 	reply = redisCommand(r->rd, cmd);
 	if (! reply ) {
-	    	printf ("%s:%d exec %s failed\n", r->host, r->port, cmd);
+	    	trans_log("%s:%d exec %s failed\n", r->host, r->port, cmd);
 	    	return REDIS_ERR;
 	} else {
 		print_reply_info_with_redisinfo(r, cmd, reply);
@@ -292,7 +326,7 @@ int check_reply_nil(redisReply * reply){
     return REDIS_ERR;
 }
 
-int check_reply_status_str(redisReply * reply, char * str){
+int check_reply_status_str(redisReply * reply,char * str){
     if (reply && 
             reply->type == REDIS_REPLY_STATUS && 
             strcasecmp(reply->str,str) ==0 ) {
@@ -363,11 +397,11 @@ void* dojob(void * ptr) {
 }
 
 void log_err(const char * errstr){
-    printf("[ ERROR ] at %s:%d ,err info: %s\n",__FILE__,__LINE__,errstr);
+    trans_log("[ ERROR ] at %s:%d ,err info: %s\n",__FILE__,__LINE__,errstr);
 }
 
 void log_info(const char * errstr){
-    printf("[ INFO ] at %s:%d ,info: %s\n",__FILE__,__LINE__,errstr);
+    trans_log("[ INFO ] at %s:%d ,info: %s\n",__FILE__,__LINE__,errstr);
 }
 
 int transfer_bucket(void * ptr) {
@@ -403,7 +437,7 @@ int transfer_bucket(void * ptr) {
 	assert(   src->rd &&  dst->rd);
 	assert(bucketid >=0 || bucketid < MODHASH_TOTAL_KEY );
 
-	printf("transfer_bucket src %s:%d dst %s:%d bucket %d \n",src->host, src->port, dst->host, dst->port,  bucketid);
+	trans_log("transfer_bucket src %s:%d dst %s:%d bucket %d \n",src->host, src->port, dst->host, dst->port,  bucketid);
 
 
 	repl = redisCommand(src->rd, "rctransserver out");
@@ -416,7 +450,7 @@ int transfer_bucket(void * ptr) {
 
 	repl = redisCommand(dst->rd, "rctransserver in");
     if( check_reply_ok_and_free(dst, "rctransserver in" ,repl) != REDIS_OK){
-        printf("trans in failed: %d\n",bucketid);
+        trans_log("trans in failed: %d\n",bucketid);
         log_info("rctransserver in");
         goto err;
     }
@@ -430,7 +464,7 @@ int transfer_bucket(void * ptr) {
         log_info("bucket is locking in src");
         check_reply_and_free(repl);
     }else if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
-        printf("transbegin src failed: %d\n",bucketid);
+        trans_log("transbegin src failed: %d\n",bucketid);
         log_info(cmd);
         goto err;
     }
@@ -442,7 +476,7 @@ int transfer_bucket(void * ptr) {
         log_info("bucket is locking in dst");
         check_reply_and_free(repl);
     }else if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
-        printf("transbegin dst failed: %d\n",bucketid);
+        trans_log("transbegin dst failed: %d\n",bucketid);
         log_info(cmd);
         goto err;
     }
@@ -454,7 +488,7 @@ int transfer_bucket(void * ptr) {
     if( check_reply_nil(repl) == REDIS_OK ){
         check_reply_and_free(repl);  // nil, no key locking
     }else if(repl && repl->type == REDIS_REPLY_STRING ){
-        printf("src locking key found: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        trans_log("src locking key found: '%s' ,bucketid: %d\n",repl->str, bucketid);
         // key found, unlock it.
         snprintf(cmd, max_cmd_length, "rcunlockkey \"%s\"", repl->str);
 
@@ -463,7 +497,7 @@ int transfer_bucket(void * ptr) {
         repl2 = redisCommand(src->rd, "rcunlockkey %b" , repl->str, repl->len);
         if( check_reply_ok_and_free(src, cmd, repl2) != REDIS_OK ){
             log_info(cmd);
-            printf("rcunlockkey src failed: %d\n",bucketid);
+            trans_log("rcunlockkey src failed: %d\n",bucketid);
 
             check_reply_and_free(repl); 
             goto err;
@@ -474,7 +508,7 @@ int transfer_bucket(void * ptr) {
     }else{
         // error return.
         log_info(cmd);
-        printf("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        trans_log("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
         goto err;
     }
 
@@ -485,7 +519,7 @@ int transfer_bucket(void * ptr) {
     if( check_reply_nil(repl) == REDIS_OK ){
         check_reply_and_free(repl);  // nil, no key locking
     }else if(repl && repl->type == REDIS_REPLY_STRING ){
-        printf("dst locking key found: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        trans_log("dst locking key found: '%s' ,bucketid: %d\n",repl->str, bucketid);
         // key found, unlock it.
         snprintf(cmd, max_cmd_length, "rcunlockkey \"%s\"", repl->str);
 
@@ -494,7 +528,7 @@ int transfer_bucket(void * ptr) {
         repl2 = redisCommand(dst->rd, "rcunlockkey %b" , repl->str, repl->len);
         if( check_reply_ok_and_free(dst, cmd, repl2) != REDIS_OK ){
             log_info(cmd);
-            printf("rcunlockkey dst failed: %d\n",bucketid);
+            trans_log("rcunlockkey dst failed: %d\n",bucketid);
 
             check_reply_and_free(repl); 
             goto err;
@@ -505,7 +539,7 @@ int transfer_bucket(void * ptr) {
     }else{
         // error return.
         log_info(cmd);
-        printf("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
+        trans_log("rcgetlockingkey error returned: '%s' ,bucketid: %d\n",repl->str, bucketid);
         goto err;
     }   
 
@@ -516,7 +550,7 @@ int transfer_bucket(void * ptr) {
     print_reply_info(cmd, keys);
 	if (!keys) {
 		//todo add a check
-        printf("cannot find keys: %d\n",bucketid);
+        trans_log("cannot find keys: %d\n",bucketid);
         log_info(cmd);
 		goto err;
 	}
@@ -531,7 +565,7 @@ int transfer_bucket(void * ptr) {
 		if (REDIS_OK == status) {
 			t->bucket->key_succ ++;
 		} else {
-            printf("trans string failed: %d\n",bucketid);
+            trans_log("trans string failed: %d\n",bucketid);
             t->bucket->key_fail ++;
 		}
 	}
@@ -545,14 +579,14 @@ int transfer_bucket(void * ptr) {
     n = snprintf(cmd, max_cmd_length, "rctransend %d %d", bucketid, bucketid);
 	repl = redisCommand(src->rd, cmd);
     if( check_reply_ok_and_free(src, cmd, repl) != REDIS_OK){
-        printf("trans end failed: %d\n",bucketid);
+        trans_log("trans end failed: %d\n",bucketid);
         log_info(cmd);
         goto err;
     }
     
 	repl = redisCommand(dst->rd, cmd);
     if( check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK){
-        printf("trans end dst failed: %d\n",bucketid);
+        trans_log("trans end dst failed: %d\n",bucketid);
         log_info(cmd);
         goto err;
     }
@@ -562,7 +596,7 @@ int transfer_bucket(void * ptr) {
 	return REDIS_OK;
 
 err:
-    printf("trans string failed ERR: %d\n",bucketid);
+    trans_log("trans string failed ERR: %d\n",bucketid);
 
 	return REDIS_ERR;
 }
@@ -595,14 +629,14 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
 	redis->rd = redisConnectWithTimeout(hostname, port, timeout);
 	if (redis->rd == NULL || redis->rd->err) {
 		if (redis->rd) {
-			printf("connect redis %s:%d error:%s\n", hostname, port, redis->rd->errstr);
+			trans_log("connect redis %s:%d errorno:%d, errstr:%s\n", hostname, port, redis->rd->err,redis->rd->errstr);
 			redisFree(redis->rd);
 		} else {
-			printf("connect redis %s:%d error:can't allocate redis context\n", hostname, port);
+			trans_log("connect redis %s:%d error:can't allocate redis context\n", hostname, port);
 		}
 		return REDIS_ERR;
 	}
-	printf("connect redis %s:%d succ %p\n", hostname, port, (void *)redis->rd);
+	trans_log("connect redis %s:%d succ %p\n", hostname, port, (void *)redis->rd);
 	redis->port = port;
 	strncpy(redis->host, hostname, sizeof(redis->host));
 	return REDIS_OK;
@@ -613,7 +647,7 @@ int parse_proxylist(char *filename, redisInfo *proxylist) {
 	char buf[32];
 	FILE *fh = fopen(filename, "r");
 	if (!fh) {
-		printf("open proxylist:%s failed\n", filename);
+		trans_log("open proxylist:%s failed\n", filename);
 		return 0;
 	}
 	n = 0;
@@ -621,7 +655,7 @@ int parse_proxylist(char *filename, redisInfo *proxylist) {
 		buf[len] = '\0';
 		status = parse_ipport(buf, proxylist[n].host, sizeof(proxylist[n].host), &proxylist[n].port);
 		if (status == REDIS_ERR) {
-			printf("parse proxylist:%s:%d failed\n", filename, n);   // TODO: error ip:port skip?
+			trans_log("parse proxylist:%s:%d failed\n", filename, n);   // TODO: error ip:port skip?
 		}
 		n++;
 	}
@@ -657,26 +691,26 @@ int main(int argc, char **argv) {
 
 
 	if (argc != 6) {
-		printf("transfer: bad arg\n");
-		printf("usage: transfer twemproxy-list  src dst seg_start seg_end\n\n");
+		trans_log("transfer: bad arg\n");
+		trans_log("usage: transfer twemproxy-list  src dst seg_start seg_end\n\n");
 		exit(1);
 	}
 
 	proxylist_len = parse_proxylist(argv[1], proxylist);
 	if (0 == proxylist_len) {
-		printf("transfer: bad twemproxy-list:%s\n", argv[1]);
+		trans_log("transfer: bad twemproxy-list:%s\n", argv[1]);
 		exit(1);
 	}
 
 	status = parse_ipport(argv[2], src_host, sizeof(src_host), &src_port);
 	if (status == REDIS_ERR) {
-		printf("transfer: bad srcip:%s", argv[2]);
+		trans_log("transfer: bad srcip:%s", argv[2]);
 		exit(1);
 	}
 
 	status = parse_ipport(argv[3], dst_host, sizeof(dst_host), &dst_port);
 	if (status == REDIS_ERR) {
-		printf("transfer: bad dstip:%s", argv[3]);
+		trans_log("transfer: bad dstip:%s", argv[3]);
 		exit(1);
 	}
 
@@ -684,17 +718,17 @@ int main(int argc, char **argv) {
 	seg_end = atoi(argv[5]);
 
 	if (seg_start < 0 || seg_start >= MODHASH_TOTAL_KEY) {
-		printf("transfer: bad seg_start:%s", argv[4]);
+		trans_log("transfer: bad seg_start:%s", argv[4]);
 		exit(1);
 	}
 
 	if (seg_end < 0 || seg_end >= MODHASH_TOTAL_KEY) {
-		printf("transfer: bad seg_end:%s", argv[5]);
+		trans_log("transfer: bad seg_end:%s", argv[5]);
 		exit(1);
 	}
 
 	if (seg_end < seg_start) {
-		printf("transfer: require seg_start <= seg_end: %s  %s", argv[4], argv[5]);
+		trans_log("transfer: require seg_start <= seg_end: %s  %s", argv[4], argv[5]);
 		exit(1);
 	}
 
@@ -725,13 +759,13 @@ int main(int argc, char **argv) {
 	job.bucketlist = bucketlist;
 
 
-	printf("transfer: got args %s : %d %s : %d %d %d\n", src_host, src_port, dst_host, dst_port, seg_start, seg_end);
+	trans_log("transfer: got args %s : %d %s : %d %d %d\n", src_host, src_port, dst_host, dst_port, seg_start, seg_end);
 
 	//init redis handle
 	for (i=0;i<thread_num;i++) {
 		status = connect_redis(&task[i].src, src_host, src_port);
 		if (status != REDIS_OK) {
-				printf("[thread %d] conn src redis %s:%d failed\n", i,src_host, src_port);
+				trans_log("[thread %d] conn src redis %s:%d failed\n", i,src_host, src_port);
 				goto end;
 		}
 
@@ -740,7 +774,7 @@ int main(int argc, char **argv) {
 
 		status = connect_redis(&task[i].dst, dst_host, dst_port);
 		if (status != REDIS_OK) {
-			printf("[thread %d] conn src redis %s:%d failed\n", i,dst_host, dst_port);
+			trans_log("[thread %d] conn src redis %s:%d failed\n", i,dst_host, dst_port);
 				goto end;
 		}
 
@@ -754,22 +788,22 @@ int main(int argc, char **argv) {
 	for (i=0;i<proxylist_len;i++) {
 		int sock = tcp_connect (proxylist[i].host, proxylist[i].port+1000);
 		if (sock < 0) {
-			printf ("add: connect to twemproxy %s:%d failed, stop transing\n", proxylist[i].host, proxylist[i].port+1000);
+			trans_log ("add: connect to twemproxy %s:%d failed, stop transing\n", proxylist[i].host, proxylist[i].port+1000);
 			goto end;
 		}
 
 		n = snprintf (add_cmd, max_cmd_length, "add alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
 		add_cmd[n]='\0';
-		printf ("cmd %s\n", add_cmd);
+		trans_log ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
 
 		close (sock);
 
 		if (strncmp(add_buf, "OK", 2)) {
-			printf ("add fail<%s>", add_buf);
+			trans_log ("add fail<%s>", add_buf);
 			goto end;
 		} else {
-			printf ("add succ<%s>", add_buf);
+			trans_log ("add succ<%s>", add_buf);
 		}
 	}
 
@@ -820,15 +854,15 @@ int main(int argc, char **argv) {
 	for (i=0;i<proxylist_len;i++) {
 		int sock = tcp_connect (proxylist[i].host, proxylist[i].port+1000);
 		if (sock < 0) {
-			printf ("adddone: connect to twemproxy %s:%d failed, next\n", proxylist[i].host, proxylist[i].port+1000);
+			trans_log ("adddone: connect to twemproxy %s:%d failed, next\n", proxylist[i].host, proxylist[i].port+1000);
 			continue;
 		}
 
 		n = snprintf (add_cmd, max_cmd_length, "adddone alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
 		add_cmd[n]='\0';
-		printf ("cmd %s\n", add_cmd);
+		trans_log ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
-		printf ("return <%s>", add_buf);
+		trans_log ("return <%s>", add_buf);
 		close (sock);
 	}
 
