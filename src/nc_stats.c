@@ -974,11 +974,11 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 		n = nc_sendn(sd, str_e, strlen(str_e));
 	}
 
-	result[0] = 0;
+
 end:
 
-	if (result) free(result);
-	if (output) free(output);
+	if (result) nc_free(result);
+	if (output) nc_free(output);
 
 	if (n < 0) {
 		log_error("send stats on sd %d failed: %s", sd, strerror(errno));

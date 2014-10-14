@@ -56,7 +56,7 @@
 
 #define MAX_COMMAND_FIELD  7  /* max command field ,here our max fields in command is 6 */
 #define MAX_COMMAND_LENGTH 20 /* max command field ,here our max fields in command is 6 */
-#define STATS_RESULT_BUFLEN 1023  /*the buf length output of stat command*/
+#define STATS_RESULT_BUFLEN 10240  /*the buf length output of stat command*/
 
 typedef enum stats_type {
     STATS_INVALID,

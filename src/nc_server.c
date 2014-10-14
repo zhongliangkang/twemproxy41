@@ -1061,36 +1061,49 @@ server_pool_deinit(struct array *server_pool)
 
 
 
-int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result){
-    uint8_t *p;
-    struct array *arr= NULL; 
-    uint32_t svr_num=0,i;
-    char *strp;
+int sp_get_server(struct server_pool *sp, struct sp_config *spc, char * result) {
+	uint32_t i;
+	char *server_buf;
+	int n = 0;
+	int result_len = 0;
 
-    p = (void *)sp; 
-    arr = (struct array *)(p + spc->offset);
-    svr_num = array_n(arr);
-        
-    strp = result;
-        
-    for (i = 0; i < svr_num; i++) {
-        struct server *cs = array_get(arr, i);
+	server_buf = nc_alloc(STATS_RESULT_BUFLEN);
+	if (!server_buf) {
+		snprintf(result, STATS_RESULT_BUFLEN, "no memory");
+		return NC_ERROR;
+	}
 
+	for (i = 0; i < array_n(&sp->server); i++) {
+		struct server *server = array_get(&sp->server, i);
+		n = 0;
+		if (server->status == 0)
+			continue;
 
-        // add thread lock for safe
-        pthread_mutex_lock(&cs->mutex);
+		pthread_mutex_lock(&server->mutex);
 
-        if(cs->reload_svr){
-            snprintf(strp, 1024,"%s %s %d-%d %d\n",cs->mif.new_name,cs->app.data,cs->seg_start,cs->seg_end,cs->status);
-        }else{
-            snprintf(strp, 1024,"%s %s %d-%d %d\n",cs->name.data,cs->app.data,cs->seg_start,cs->seg_end,cs->status);
-        }
-        pthread_mutex_unlock(&cs->mutex);
+		if (server->reload_svr) {
+			n = snprintf(server_buf, STATS_RESULT_BUFLEN, "%s %s %d-%d %d\n", server->mif.new_name, server->app.data, server->seg_start, server->seg_end,
+					server->status);
+		} else {
+			n = snprintf(server_buf, STATS_RESULT_BUFLEN, "%s %s %d-%d %d\n", server->name.data, server->app.data, server->seg_start, server->seg_end,
+					server->status);
+		}
 
-        strp = result+strlen(result);
-    }
+		pthread_mutex_unlock(&server->mutex);
 
-    return NC_OK;
+		if (result_len + n > STATS_RESULT_BUFLEN - 1) {
+			n = snprintf(result, STATS_RESULT_BUFLEN, "too many servers in pool %s\n", sp->name.data);
+			result_len =n;
+			break;
+		}
+
+		strncpy(result + result_len, server_buf, n);
+		result_len += n;
+
+	}
+	result[result_len] = '\0';
+	nc_free(server_buf);
+	return NC_OK;
 }
 
 int sp_get_transinfo( struct server_pool *sp, struct sp_config *spc, char * result){
@@ -1122,10 +1135,6 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
                 //in this server pool
                 if(!strcmp(sp_name, (char *)tcf->name.data)){
                          m = array_n(&tcf->server);
-                        /*for(j=0;j<m;j++){
-                                struct server *tss = array_get(&tcf->server,j);
-                                printf("%d name : %s\n",j,tss->name.data);
-                        } */
 
                         rt = server_pool_get_config_by_string(tcf, &item, result);
                         if( rt != NC_OK){
