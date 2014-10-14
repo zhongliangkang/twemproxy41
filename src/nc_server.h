@@ -164,6 +164,8 @@ struct server_pool {
     int64_t            server_retry_timeout; /* server retry timeout in usec */
     uint32_t           server_failure_limit; /* server failure limit */
     pthread_mutex_t    mutex;                /* mutex for modhash_update */
+    uint32_t           add_cmd_count;            /* add command ocunt */
+
     unsigned           auto_eject_hosts:1;   /* auto_eject_hosts? */
     unsigned           preconnect:1;         /* preconnect? */
     unsigned           redis:1;              /* redis? */
@@ -171,6 +173,7 @@ struct server_pool {
     unsigned           b_pass:1;             /* if access twemproxy need password? */
     unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
     unsigned           status:2;             /* 0:nouse, 1:notrans ,2:transing, 3:trans done */
+
 };
 
 void server_ref(struct conn *conn, void *owner);
@@ -203,6 +206,7 @@ struct sp_config{
 
 
 int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result);
+int sp_get_transinfo( struct server_pool *sp, struct sp_config *spc, char * result);
 
 int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
 #define null_config { null_string, NULL, 0 }
@@ -232,7 +236,7 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * app, char * seqs, char* status,struct server *tmpsvr, char* result);
 rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char* result);
 
-rstatus_t server_check_hash_keys( struct server_pool *sp);
+rstatus_t server_check_hash_keys( struct server_pool *sp, struct server *newsrv);
 
 rstatus_t nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 

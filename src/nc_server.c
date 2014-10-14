@@ -64,6 +64,9 @@ static struct sp_config  sp_config_arr[]={
     { string("server"),
         sp_get_server,
         offsetof(struct server_pool, server) },
+    { string("transinfo"),
+               sp_get_transinfo,
+               offsetof(struct server_pool, server) },
 
     null_config
 };
@@ -993,6 +996,7 @@ server_pool_init(struct array *server_pool, struct array *conf_pool,
     ASSERT(npool != 0);
     ASSERT(array_n(server_pool) == 0);
 
+
     status = array_init(server_pool, npool, sizeof(struct server_pool));
     if (status != NC_OK) {
         return status;
@@ -1089,6 +1093,16 @@ int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result)
     return NC_OK;
 }
 
+int sp_get_transinfo( struct server_pool *sp, struct sp_config *spc, char * result){
+    int n;
+	n = snprintf(result, 1024,"add_avial:%d\nadd_run:%d\n", sp->server.nalloc -sp->server.nelem, sp->add_cmd_count);
+    if (n<=0) {
+    	snprintf(result, 1024,"unknow error");
+    	return NC_ERROR;
+    }
+    return NC_OK;
+
+}
 
 int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
         uint32_t n,m,i;
@@ -1130,6 +1144,9 @@ int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
         return NC_ERROR;
 
 }
+
+
+
 
 int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result){
     struct  sp_config * spp;
@@ -1253,8 +1270,10 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 		return NC_ERROR;
 	}
 
+
+
 	pthread_mutex_lock(&pool->mutex);
-    log_error("pthread_mutex_lock for migrate segment");
+	log_error("pthread_mutex_lock for migrate segment");
 	//int idx  = -1;
 	nserver = array_n(&pool->server);
 	for (server_index = 0; server_index < nserver; server_index++) {
@@ -1264,15 +1283,15 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 			continue;
 		}
 
-		log_debug(LOG_VERB, "%s %d %d %d", s->name.data, s->status, s->seg_start , s->seg_end);
+		log_debug(LOG_VERB, "%s %d %d %d", s->name.data, s->status, s->seg_start, s->seg_end);
 
-		if (server_index == (uint32_t )dstsvr_idx  ) {
+		if (server_index == (uint32_t) dstsvr_idx) {
 			if (tmpsvr.seg_start == s->seg_start && tmpsvr.seg_end == s->seg_end && s->status == 2) {
-				if ( 0 == strncmp((char *)tmpsvr.name.data, (char *)s->name.data, tmpsvr.name.len)) {
+				if (0 == strncmp((char *) tmpsvr.name.data, (char *) s->name.data, tmpsvr.name.len)) {
 					s->status = 1;
 					update = true;
 				} else {
-					log_debug(LOG_VERB, "error %s %d ne %s %d ", s->name.data, s->name.len, tmpsvr.name.data,tmpsvr.name.len);
+					log_debug(LOG_VERB, "error %s %d ne %s %d ", s->name.data, s->name.len, tmpsvr.name.data, tmpsvr.name.len);
 				}
 			}
 
@@ -1281,44 +1300,65 @@ rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* ap
 			 *  old  0-419999 1   ==> a+1 - 419999 1
 			 *  new  0-a      2   ==> 0   - a      1
 			 */
-			if (s->seg_start == tmpsvr.seg_start &&   tmpsvr.seg_end <= s->seg_end) {
+			if (s->seg_start == tmpsvr.seg_start && tmpsvr.seg_end <= s->seg_end) {
 				s->seg_start = tmpsvr.seg_end + 1;
 				s->status = 1;
 				if (s->seg_start > s->seg_end) {
 					s->status = 0;
 				}
-				log_error ("s->seg_start <= tmpsvr.seg_start && s->seg_end > tmpsvr.seg_start && s->seg_end < tmpsvr.seg_end");
+				log_error("s->seg_start <= tmpsvr.seg_start && s->seg_end > tmpsvr.seg_start && s->seg_end < tmpsvr.seg_end");
 				update = true;
 
 			}
 			/*
+			 * old 0-219999 1 ==> 0-0      0
+			 * new 0-419999 2 ==> 0-419999 1
+			 */
+			else if (s->seg_start == tmpsvr.seg_start && tmpsvr.seg_end > s->seg_end) {
+				s->status = 0;
+				log_error("s->seg_start == tmpsvr.seg_start && tmpsvr.seg_end  >  s->seg_end");
+				update = true;
+			}
+			/*
 			 *  old  0-419999 1   ==> 0 - a+1     1
 			 *  new  a-419999 2   ==> a - 419999   1
-			*/
-			else if (s->seg_end == tmpsvr.seg_end && s->seg_start <= tmpsvr.seg_start ) {
+			 */
+			else if (s->seg_end == tmpsvr.seg_end && s->seg_start <= tmpsvr.seg_start) {
 				s->seg_end = tmpsvr.seg_start - 1;
 				s->status = 1;
 				if (s->seg_start > s->seg_end) {
 					s->status = 0;
 				}
-				log_error ("s->seg_end == tmpsvr.seg_end && s->seg_start <= tmpsvr.seg_start");
+				log_error("s->seg_end == tmpsvr.seg_end && s->seg_start <= tmpsvr.seg_start");
 				update = true;
 			}
+			/*
+			 * old 220000-419999 1 ==> 0-0      0
+			 * new 0-419999 2 ==> 0-419999 1
+			 */
+			else if (s->seg_end == tmpsvr.seg_end && s->seg_start > tmpsvr.seg_start) {
+				s->status = 0;
+				log_error("s->seg_end == tmpsvr.seg_end && s->seg_start > tmpsvr.seg_start");
+				update = true;
+			} else {
+				log_error("adddone: %s not match %s", s->pname.data, tmpsvr.pname.data);
+			}
+
 		}
-/*
- *
- 127.0.0.1:30001:1 pvz1 100000-199999 1
- */
+		/*
+		 *
+		 127.0.0.1:30001:1 pvz1 100000-199999 1
+		 */
 		if (update) {
-			n  = snprintf (buf, 128, "%s:1 %s %d-%d %d", s->name.data, s->app.data, s->seg_start,s->seg_end, s->status );
-			if (n == 1024 || n <= 0 ) {
+			n = snprintf(buf, 128, "%s:1 %s %d-%d %d", s->name.data, s->app.data, s->seg_start, s->seg_end, s->status);
+			if (n == 1024 || n <= 0) {
 				//error
 			}
 
-			log_error ("add done %s => %s",  s->pname.data, buf);
+			log_error("add done %s => %s", s->pname.data, buf);
 
 			string_deinit(&s->pname);
-			string_copy(&s->pname, (uint8_t *)buf, (uint32_t)strlen(buf));
+			string_copy(&s->pname, (uint8_t *) buf, (uint32_t) strlen(buf));
 
 		}
 	}
@@ -1416,6 +1456,7 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 		if (s->status == 0) {
 			continue;
 		}
+
 		// tmpsvr in s or tmpsvr union s > 0
 		if ((tmpsvr.seg_start >= s->seg_start && tmpsvr.seg_start <= s->seg_end)
 				  || (tmpsvr.seg_end >= s->seg_start && tmpsvr.seg_end <= s->seg_end ) ) {
@@ -1431,6 +1472,11 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
                             s->pname.data, s->status, tmpsvr.pname.data, tmpsvr.status) ;
                     goto err;
                 }
+			}
+
+			if (tmpsvr.seg_start != s->seg_start && tmpsvr.seg_end != s->seg_end) {
+				snprintf(result, STATS_RESULT_BUFLEN, " %s is not contain a valid dst segment", s->pname.data);
+				goto err;
 			}
 
 			if (s->status == 1) {
@@ -1455,6 +1501,10 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
         return NC_OK;
     }
 
+
+
+
+
     pthread_mutex_lock(&pool->mutex);
 	log_error("pthread_mutex_lock for nc_add_new_server");
 	nc_add_new_server(pool, &tmpsvr, result);
@@ -1469,12 +1519,16 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
     pthread_mutex_lock(&pool->mutex);
 	log_error("pthread_mutex_lock for modhash_update");
 	rt = modhash_update(pool);
+	if (rt == NC_OK) {
+		pool->add_cmd_count ++;
+	}
 	pthread_mutex_unlock(&pool->mutex);
 	log_error("pthread_mutex_unlock for modhash_update");
 	if (rt != NC_OK) {
 		log_error("fetal error:modhash_update failed");
 		return NC_ERROR;
 	}
+
 
 	rt = sp_write_conf_file(pool, i, -1, 0);
 	if (rt != NC_OK) {
@@ -1760,9 +1814,8 @@ server_set_new_owner(void * elem, void *data){
 }
 */
 
-rstatus_t server_check_hash_keys(struct server_pool *sp) {
+rstatus_t server_check_hash_keys(struct server_pool *sp, struct server *newsrv ) {
 	struct server *server;
-//	bool keys_flag[MODHASH_TOTAL_KEY];// why will occur a bus error in mac
 	bool * keys_flag;
 	uint32_t n_server, i, hash_count;
 	int j;
@@ -1794,6 +1847,22 @@ rstatus_t server_check_hash_keys(struct server_pool *sp) {
 				goto err;
 			}
 		}
+	}
+
+	if (newsrv) {
+		server = newsrv;
+		for (j = server->seg_start; j <= server->seg_end; j++) {
+					if (keys_flag[j] == false && j < MODHASH_TOTAL_KEY) {
+						keys_flag[j] = true;
+						hash_count++;
+						//will occur a bus error if a printf
+					} else {
+						// more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
+						log_error("error: hash key '%d' has more than one status is 1!\n",j);
+						goto err;
+					}
+		}
+
 	}
 
 	// not enogh slot status is 1!

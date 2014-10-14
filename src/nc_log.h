@@ -20,9 +20,11 @@
 
 struct logger {
     char *name;  /* log file name */
+    char *realname ; /* name + yyyymmddhhmmss */
     int  level;  /* log level */
     int  fd;     /* log file descriptor */
     int  nerror; /* # log error */
+    int  write_count ; /* write count */
 };
 
 #define LOG_EMERG   0   /* system in unusable */
@@ -39,6 +41,9 @@ struct logger {
 #define LOG_PVERB   11  /* periodic verbose messages on crack */
 
 #define LOG_MAX_LEN 256 /* max length of log message */
+
+#define LOG_N_TRY_REOPEN 102400
+#define LOG_MAX_FILESIZE 1024*1024*200ll
 
 /*
  * log_stderr   - log to stderr
@@ -107,6 +112,7 @@ struct logger {
 } while (0)
 
 int log_init(int level, char *filename);
+void log_init_realname(void);
 void log_deinit(void);
 void log_level_up(void);
 void log_level_down(void);

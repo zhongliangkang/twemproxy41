@@ -69,7 +69,7 @@ modhash_update(struct server_pool *pool)
 	}
 
 
-    if(NC_OK != server_check_hash_keys(pool) ){
+    if(NC_OK != server_check_hash_keys(pool, NULL) ){
        log_error("there may be some error in the config file.");
        return NC_ERROR;
     }

@@ -681,6 +681,12 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	unsigned int redirect_msg_type;
 	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
 	struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
+	struct string nil_msg = string("$-1\r\n"); //-BUCKET_TRANS_DONE
+
+
+	if (compare_buf_string(msg, &nil_msg)) {
+		log_error ("get a nil message from s %d", conn->sd);
+	}
 
 	// msg : which  server->rsp && peer request's status == 2 && PARSED_OK
 	if (! (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK && msg->type == MSG_RSP_REDIS_ERROR)
@@ -688,6 +694,9 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 
 		return false;
 	}
+
+
+
 
 	//check peer msg
 	buf = STAILQ_FIRST(&msg->mhdr);
@@ -725,9 +734,10 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 	if ( pmsg->redirect >= MAX_REDIRECT_TIMES) {
 		pmsg->error = 1;
 		pmsg->err = ETIME;
+		stats_server_incr_by(ctx, conn->owner, redirect_fail, 1);
 		return false;
 	}
-
+	stats_server_incr_by(ctx, conn->owner, redirect_succ, 1);
 	/*
 	if ((buf->last - buf->pos) >= redirect_msg_2.len && 0 == strncmp((char *) buf->pos, (char *) redirect_msg_2.data, redirect_msg_2.len)) {
 			redirect_msg_type = REDIRECT_TYPE_BUCKET_TRANS_DONE;
