@@ -124,12 +124,12 @@ static void create_key (struct config config, int num, char * template, int verb
     c = connect(config);
     printf ("create key aa 1 - %d\n", num);
     
-    for (i=1;i<=num;i++) {
+    for (i=0;i<num;i++) {
 	     for (j=0,p=template;*p != '\0' ;p++) {
 		switch (*p) {
 		case '%':
 			if (*(p+1) == 'k') {
-				n= sprintf (cmd+j,  "aa%d", i);	
+				n= sprintf (cmd+j,  "%012d", i);	
 				j+=n;
 				p++;
 			} else {
