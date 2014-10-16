@@ -1491,7 +1491,7 @@ rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, c
 			}
 
 			if (tmpsvr.seg_start != s->seg_start && tmpsvr.seg_end != s->seg_end) {
-				snprintf(result, STATS_RESULT_BUFLEN, " %s is not contain a valid dst segment", s->pname.data);
+				snprintf(result, STATS_RESULT_BUFLEN, " %s is not contain a valid dst segment", tmpsvr.pname.data);
 				goto err;
 			}
 
