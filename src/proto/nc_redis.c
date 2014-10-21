@@ -54,7 +54,6 @@ redis_arg0(struct msg *r)
     case MSG_REQ_REDIS_SCARD:
     case MSG_REQ_REDIS_SMEMBERS:
     case MSG_REQ_REDIS_SPOP:
-    case MSG_REQ_REDIS_SRANDMEMBER:
 
     case MSG_REQ_REDIS_ZCARD:
 
@@ -208,6 +207,7 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_ZREVRANGEBYSCORE:
     case MSG_REQ_REDIS_ZUNIONSTORE:
     case MSG_REQ_REDIS_MGET_SINGLE_REDIS:
+    case MSG_REQ_REDIS_SRANDMEMBER:
         return true;
 
     default:

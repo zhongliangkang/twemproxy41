@@ -601,11 +601,35 @@ err:
 	return REDIS_ERR;
 }
 
+int
+_nc_atoi(unsigned char *line, size_t n)
+{
+    int value;
 
+    if (n == 0) {
+        return -1;
+    }
+
+    for (value = 0; n--; line++) {
+        if (*line < '0' || *line > '9') {
+            return -1;
+        }
+
+        value = value * 10 + (*line - '0');
+    }
+
+    if (value < 0) {
+        return -1;
+    }
+
+    return value;
+}
 
 int parse_ipport(const char* ipport, char *ip, uint32_t iplen, uint16_t * port) {
 	char *p;
 	int len;
+	int len2;
+	len2 = strlen(ipport);
 	p = strchr(ipport, ':');
 	if (!p) {
 		return REDIS_ERR;
@@ -618,7 +642,11 @@ int parse_ipport(const char* ipport, char *ip, uint32_t iplen, uint16_t * port) 
 	strncpy(ip, ipport, len);
 	ip[len] = '\0';
 
-	*port = atoi(p + 1);
+	*port = _nc_atoi (p + 1,len2-len-1);
+
+	if (*port <=0 || *port >= 65535) {
+		return REDIS_ERR;
+	}
 	//dstDO check ip port
 
 	return REDIS_OK;
@@ -643,25 +671,52 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
 }
 
 int parse_proxylist(char *filename, redisInfo *proxylist) {
-	int n, len, status;
+	int n, status, pos, proxy_num;
 	char buf[32];
+	char ch;
 	FILE *fh = fopen(filename, "r");
 	if (!fh) {
 		trans_log("open proxylist:%s failed\n", filename);
 		return 0;
 	}
+
+	proxy_num = 0;
 	n = 0;
-	while ((len = fread(buf, sizeof(char), 32, fh)) > 0) {
-		buf[len] = '\0';
-		status = parse_ipport(buf, proxylist[n].host, sizeof(proxylist[n].host), &proxylist[n].port);
-		if (status == REDIS_ERR) {
-			trans_log("parse proxylist:%s:%d failed\n", filename, n);   // TODO: error ip:port skip?
+	ch = fgetc(fh);
+	pos = 0;
+	while (1) {
+		buf[n++]=ch;
+		pos++;
+		if (ch == '\n' || ch == EOF) {
+			if (n == 1 ) {
+				if (ch == EOF) {	
+					//end of file
+					break;
+				} else {
+					trans_log ("parse twemproxy-list %s faild , a empty line found\n", filename);
+					return 0;
+				}
+			}
+
+			buf[n-1] = '\0';
+			status = parse_ipport(buf, proxylist[proxy_num].host, sizeof(proxylist[proxy_num].host), &proxylist[proxy_num].port);
+			if (status == REDIS_ERR) {
+				trans_log("parse proxylist:%s:%d failed '%s'\n", filename, n, buf);  
+				return 0;
+			} else {
+				proxy_num ++;
+			}
+
+			if (ch == EOF) {
+				break;
+			}
+			n = 0;
 		}
-		n++;
+		ch = fgetc(fh);
 	}
 
 	fclose(fh);
-	return n;
+	return proxy_num;
 
 }
 
@@ -669,6 +724,7 @@ int parse_proxylist(char *filename, redisInfo *proxylist) {
 
 int main(int argc, char **argv) {
 	int status, n;
+	char *app ;
 	char src_host[32], dst_host[32];
 	uint16_t src_port, dst_port;
 	int32_t seg_start, seg_end, i, idx;
@@ -690,9 +746,9 @@ int main(int argc, char **argv) {
 	int proxylist_len = 0;
 
 
-	if (argc != 6) {
+	if (argc != 7) {
 		trans_log("transfer: bad arg\n");
-		trans_log("usage: transfer twemproxy-list  src dst seg_start seg_end\n\n");
+		trans_log("usage: transfer twemproxy-list app src dst seg_start seg_end\n\n");
 		exit(1);
 	}
 
@@ -702,33 +758,36 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 
-	status = parse_ipport(argv[2], src_host, sizeof(src_host), &src_port);
+	app=argv[2];
+	
+
+	status = parse_ipport(argv[3], src_host, sizeof(src_host), &src_port);
 	if (status == REDIS_ERR) {
-		trans_log("transfer: bad srcip:%s", argv[2]);
+		trans_log("transfer: bad srcip:%s", argv[3]);
 		exit(1);
 	}
 
-	status = parse_ipport(argv[3], dst_host, sizeof(dst_host), &dst_port);
+	status = parse_ipport(argv[4], dst_host, sizeof(dst_host), &dst_port);
 	if (status == REDIS_ERR) {
-		trans_log("transfer: bad dstip:%s", argv[3]);
+		trans_log("transfer: bad dstip:%s", argv[4]);
 		exit(1);
 	}
 
-	seg_start = atoi(argv[4]);
-	seg_end = atoi(argv[5]);
+	seg_start = atoi(argv[5]);
+	seg_end = atoi(argv[6]);
 
 	if (seg_start < 0 || seg_start >= MODHASH_TOTAL_KEY) {
-		trans_log("transfer: bad seg_start:%s", argv[4]);
+		trans_log("transfer: bad seg_start:%s", argv[5]);
 		exit(1);
 	}
 
 	if (seg_end < 0 || seg_end >= MODHASH_TOTAL_KEY) {
-		trans_log("transfer: bad seg_end:%s", argv[5]);
+		trans_log("transfer: bad seg_end:%s", argv[6]);
 		exit(1);
 	}
 
 	if (seg_end < seg_start) {
-		trans_log("transfer: require seg_start <= seg_end: %s  %s", argv[4], argv[5]);
+		trans_log("transfer: require seg_start <= seg_end: %s  %s", argv[5], argv[6]);
 		exit(1);
 	}
 
@@ -792,7 +851,7 @@ int main(int argc, char **argv) {
 			goto end;
 		}
 
-		n = snprintf (add_cmd, max_cmd_length, "add alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
+		n = snprintf (add_cmd, max_cmd_length, "add nosqlproxy %s:%d %s %d-%d", dst_host, dst_port, app, seg_start, seg_end);
 		add_cmd[n]='\0';
 		trans_log ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
@@ -858,7 +917,7 @@ int main(int argc, char **argv) {
 			continue;
 		}
 
-		n = snprintf (add_cmd, max_cmd_length, "adddone alpha %s:%d pvz1 %d-%d", dst_host, dst_port, seg_start, seg_end);
+		n = snprintf (add_cmd, max_cmd_length, "adddone nosqlproxy %s:%d %s %d-%d", dst_host, dst_port, app, seg_start, seg_end);
 		add_cmd[n]='\0';
 		trans_log ("cmd %s\n", add_cmd);
 		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
