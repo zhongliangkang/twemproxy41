@@ -93,6 +93,8 @@ typedef struct job_queue {
 	int seg_start ;
 	int seg_end;
 	int seg_curr;
+	int seg_doing ;
+	int seg_done;
 	int err;
 	int done;
 	bucketInfo * bucketlist;
@@ -104,6 +106,7 @@ typedef struct trans_info {
 	redisInfo dst;
 	jobQueue * job;
 	bucketInfo * bucket;
+	uint32_t processid ;
 } transInfo;
 
 
@@ -114,7 +117,7 @@ int transfer_bucket(void *ptr);
 int connect_redis(redisInfo * redis, char *hostname, uint16_t port);
 int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len) ;
 int check_reply_ok(redisReply * reply);
-int check_reply_status_str(redisReply * reply, char * str);
+int check_reply_status_str(redisReply * reply, const char * str);
 void check_reply_and_free(redisReply * reply);
 int check_reply_ok_and_free(redisInfo *ri,const char * cmd, redisReply * reply);
 
