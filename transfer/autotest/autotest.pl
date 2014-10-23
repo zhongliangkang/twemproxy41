@@ -130,7 +130,7 @@ for (my $p=6379;$p<9999;$p++) {
 	my $dbsize = dbsize $p;
 	my $p1dbsize = dbsize $p1;
 	print_log ("before transfer,   $p dbsize: $dbsize, $p1 dbsize:  $p1dbsize\n"); 
-	my $cmd = "./transfer twemproxy-list 127.0.0.1:$p 127.0.0.1:$p1 0 419999 >o$p 2>&1";
+	my $cmd = "./transfer twemproxy-list alpha pvz1 127.0.0.1:$p 127.0.0.1:$p1 0 419999 >o$p 2>&1";
 	print_log $cmd, "\n";
 	`$cmd`;
 	my $dbsize_2 = dbsize $p;
