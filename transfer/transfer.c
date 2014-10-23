@@ -352,11 +352,11 @@ void* stats_thread(void *ptr) {
 	bucketInfo * tbucket;
 
 	while (1) {
-		keys_succ[0] = 0;
-		keys_fail[0] = 0;
-
 		keys_succ[1] = keys_succ[0];
 		keys_fail[1] = keys_fail[0];
+
+		keys_succ[0] = 0;
+		keys_fail[0] = 0;
 
 		for(int i=0;i<t->job->seg_curr-t->job->seg_start;i++) {
 			tbucket = &t->job->bucketlist[i];
