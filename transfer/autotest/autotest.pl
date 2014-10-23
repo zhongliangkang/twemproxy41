@@ -56,9 +56,21 @@ if ($pid) {
 	print_log ("kill nutcracker 22121\n");
 	kill 9, $pid;
 }
+
+my $pid2 = check_process "nutcracker", 22122;
+if ($pid2) {
+	print_log ("kill nutcracker 22122\n");
+	kill 9, $pid2;
+}
+
 print_log ("start nutcracker 22121\n");
 ` cp nutcracker.yml.trans conf/nutcracker.yml`;
 `./nutcracker -d -o twemproxy.log -s 23121`;
+sleep 1;
+
+print_log ("start nutcracker 22122\n");
+` cp nutcracker.2.yml.trans conf/nutcracker.2.yml`;
+`./nutcracker -c conf/nutcracker.2.yml -d -o twemproxy2.log -s 23122`;
 sleep 1;
 
 print_log ("start redis 6379\n");
@@ -80,31 +92,39 @@ if ($dbsize  != $MAX_KEY_NUM) {
 	exit(1);
 }
 
-my $pid1;
-
-if (($pid1 = fork()) == 0) {
-	
-		unlink ("test_get.log") if (-f "test_get.log");
+sub do_redis_test {
+	my ($port, $logfile) = @_;	
+		unlink ($logfile) if (-f "$logfile");
 		print_log ("do redis-test in sub porcess\n");
-		my $testcmd =" ./redis-test -h 127.0.0.1 -p 22121 -n 10000000 -c 100  -r 1000000 get k__rand_int__  >/dev/null 2>>test_get.log";
+		my $testcmd =" ./redis-test -h 127.0.0.1 -p $port -n 10000000 -c 100  -r 1000000 get k__rand_int__  >/dev/null 2>>$logfile";
 		while  (1) {
 			my $t1 = time;
 			`$testcmd`;
-			my $t2 = time - $t1;
+			my $t2 = time - $t1 +1;
 			my $qps =  sprintf ("%d\n", $MAX_KEY_NUM / $t2);
-			print_log ("do redis-test -n 10000000 use ", $t2 , " seconds, qps is $qps\n");
+			print_log ("do redis-test -h 127.0.0.1 -p $port -n 10000000 use ", $t2 , " seconds, qps is $qps\n");
 			if ($t2 < 10) {
 				sleep 1;
 			}
 		}
 		
-        exit 0;
+	
+}
+my $pid1;
+my $pid2;
+
+if (($pid1 = fork()) == 0) {
+   do_redis_test (22121, "test_get.22121.log");
+   exit 0;
+}
+
+if (($pid2 = fork()) == 0) {
+   do_redis_test (22122, "test_get.22122.log");
+   exit 0;
 }
 
 
-
-
-for (my $p=6379;$p<9999;$p++) {
+for (my $p=6379;$p<19999;$p++) {
 	my $p1 = $p+1;
 	if (check_process("redis-server",$p1)) {
 		stop_redis $p1;
@@ -129,13 +149,13 @@ for (my $p=6379;$p<9999;$p++) {
 	
 	my $dbsize = dbsize $p;
 	my $p1dbsize = dbsize $p1;
-	print_log ("before transfer,   $p dbsize: $dbsize, $p1 dbsize:  $p1dbsize\n"); 
+	print_log ("before transfer,$p dbsize: $dbsize, $p1 dbsize:  $p1dbsize\n"); 
 	my $cmd = "./transfer twemproxy-list alpha pvz1 127.0.0.1:$p 127.0.0.1:$p1 0 419999 >o$p 2>&1";
 	print_log $cmd, "\n";
 	`$cmd`;
 	my $dbsize_2 = dbsize $p;
 	my $p1dbsize_2 = dbsize $p1;
-	print_log ("after transfer,   $p dbsize: $dbsize_2, $p1 dbsize:  $p1dbsize_2\n"); 
+	print_log ("after transfer,$p dbsize: $dbsize_2, $p1 dbsize:  $p1dbsize_2\n"); 
 	if ($p1dbsize_2 ne $dbsize or $dbsize_2 ne $p1dbsize) {
 		print_log ("transfer error, exit\n");	
 		exit;
@@ -147,3 +167,4 @@ for (my $p=6379;$p<9999;$p++) {
 }
 
 kill 9, $pid;
+kill 9, $pid2;

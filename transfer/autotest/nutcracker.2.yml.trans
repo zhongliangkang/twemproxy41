@@ -1,5 +1,5 @@
 alpha:
-  listen: 0.0.0.0:22121
+  listen: 0.0.0.0:22122
   hash: fnv1a_64
   distribution: modhash
   backlog: 512
