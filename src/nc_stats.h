@@ -41,7 +41,7 @@
     /* data behavior */                                                                                             \
     ACTION( requests,               STATS_COUNTER,      "# requests")                                               \
     ACTION( request_bytes,          STATS_COUNTER,      "total request bytes")                                      \
-    ACTION( responses,              STATS_COUNTER,      "# respones")                                               \
+    ACTION( responses,              STATS_COUNTER,      "# responses")                                              \
     ACTION( response_bytes,         STATS_COUNTER,      "total response bytes")                                     \
     ACTION( in_queue,               STATS_GAUGE,        "# requests in incoming queue")                             \
     ACTION( in_queue_bytes,         STATS_GAUGE,        "current request bytes in incoming queue")                  \
@@ -51,9 +51,6 @@
 #define STATS_ADDR      "0.0.0.0"
 #define STATS_PORT      22222
 #define STATS_INTERVAL  (30 * 1000) /* in msec */
-
-#define MAX_COMMAND_FIELD  7  /* max command field ,here our max fields in command is 6 */
-#define MAX_COMMAND_LENGTH 20 /* max command field ,here our max fields in command is 6 */
 
 typedef enum stats_type {
     STATS_INVALID,
@@ -90,34 +87,33 @@ struct stats_buffer {
 };
 
 struct stats {
-    uint16_t            port;           /* stats monitoring port */
-    int                 interval;       /* stats aggregation interval */
-    struct string       addr;           /* stats monitoring address */
+    uint16_t            port;            /* stats monitoring port */
+    int                 interval;        /* stats aggregation interval */
+    struct string       addr;            /* stats monitoring address */
 
-    int64_t             start_ts;       /* start timestamp of nutcracker */
-    struct stats_buffer buf;            /* output buffer */
+    int64_t             start_ts;        /* start timestamp of nutcracker */
+    struct stats_buffer buf;             /* output buffer */
 
-    struct array        current;        /* stats_pool[] (a) */
-    struct array        shadow;         /* stats_pool[] (b) */
-    struct array        sum;            /* stats_pool[] (c = a + b) */
+    struct array        current;         /* stats_pool[] (a) */
+    struct array        shadow;          /* stats_pool[] (b) */
+    struct array        sum;             /* stats_pool[] (c = a + b) */
 
-    pthread_t           tid;            /* stats aggregator thread */
-    int                 sd;             /* stats descriptor */
+    pthread_t           tid;             /* stats aggregator thread */
+    int                 sd;              /* stats descriptor */
 
-    struct string       service_str;    /* service string */
-    struct string       service;        /* service */
-    struct string       source_str;     /* source string */
-    struct string       source;         /* source */
-    struct string       version_str;    /* version string */
-    struct string       version;        /* version */
-    struct string       uptime_str;     /* uptime string */
-    struct string       timestamp_str;  /* timestamp string */
+    struct string       service_str;     /* service string */
+    struct string       service;         /* service */
+    struct string       source_str;      /* source string */
+    struct string       source;          /* source */
+    struct string       version_str;     /* version string */
+    struct string       version;         /* version */
+    struct string       uptime_str;      /* uptime string */
+    struct string       timestamp_str;   /* timestamp string */
+    struct string       ntotal_conn_str; /* total connections string */
+    struct string       ncurr_conn_str;  /* curr connections string */
 
-    volatile int        aggregate;      /* shadow (b) aggregate? */
-    volatile int        updated;        /* current (a) updated? */
-
-    void  *             p_cf;          /* point to config instance */
-    void  *             p_sp;          /* point to server pool */
+    volatile int        aggregate;       /* shadow (b) aggregate? */
+    volatile int        updated;         /* current (a) updated? */
 };
 
 #define DEFINE_ACTION(_name, _type, _desc) STATS_POOL_##_name,

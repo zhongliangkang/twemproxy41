@@ -25,7 +25,6 @@
 
 #include <nc_core.h>
 #include <nc_server.h>
-#include <nc_conf.h>
 
 struct stats_desc {
     char *name; /* stats name */
@@ -362,6 +361,14 @@ stats_create_buf(struct stats *st)
     size += int64_max_digits;
     size += key_value_extra;
 
+    size += st->ntotal_conn_str.len;
+    size += int64_max_digits;
+    size += key_value_extra;
+
+    size += st->ncurr_conn_str.len;
+    size += int64_max_digits;
+    size += key_value_extra;
+
     /* server pools */
     for (i = 0; i < array_n(&st->sum); i++) {
         struct stats_pool *stp = array_get(&st->sum, i);
@@ -505,6 +512,16 @@ stats_add_header(struct stats *st)
     }
 
     status = stats_add_num(st, &st->timestamp_str, cur_ts);
+    if (status != NC_OK) {
+        return status;
+    }
+
+    status = stats_add_num(st, &st->ntotal_conn_str, conn_ntotal_conn());
+    if (status != NC_OK) {
+        return status;
+    }
+
+    status = stats_add_num(st, &st->ncurr_conn_str, conn_ncurr_conn());
     if (status != NC_OK) {
         return status;
     }
@@ -744,11 +761,6 @@ stats_send_rsp(struct stats *st)
     rstatus_t status;
     ssize_t n;
     int sd;
-    char result[1024*100];
-    char recv_command[MAX_COMMAND_LENGTH*MAX_COMMAND_FIELD];
-    char *cmd_p[MAX_COMMAND_FIELD];
-    char *p,*key_point;
-    int n_field;
 
     status = stats_make_rsp(st);
     if (status != NC_OK) {
@@ -761,94 +773,9 @@ stats_send_rsp(struct stats *st)
         return NC_ERROR;
     }
 
-    n = recv(sd, recv_command, 80, 0);
-    if(n>=2 && recv_command[n-2] == CR && recv_command[n-1] == LF){
-        recv_command[n-2]=recv_command[n-1]=0;
-    }else if(n>=1 && recv_command[n-1] == LF){
-        recv_command[n-1]=0;
-    }
+    log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
 
-    /* get rid of head,tail space */
-    nc_trim(recv_command);
-    log_debug(LOG_VERB,"receive length:%d, command:%s=%d= : %d %d\n",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
-
-    // null command
-    if(strlen(recv_command) < 1){
-        char str_e[] = "empty command\n";
-        n = nc_sendn(sd, str_e, strlen(str_e));
-        goto end;
-    }
-
-
-    // cut the command into many fields
-    p = recv_command;
-    n_field = 0;
-    while(p){
-        while((key_point = strsep(&p, " \t"))){
-            if(*key_point == 0)
-                continue;
-            else
-                break;
-        }
-        cmd_p[n_field] = key_point;
-
-        n_field++;
-
-        // too many fields
-        if(n_field >= MAX_COMMAND_FIELD){
-            char str_e[] = "error command: too many field in command\n";
-            n = nc_sendn(sd, str_e, strlen(str_e));
-            goto  end;
-        }
-    }
-
-    /* get the stats info of twemproxy */
-    if(!strcmp(cmd_p[0],"stats")){
-        log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
-        n = nc_sendn(sd, st->buf.data, st->buf.len);
-        
-    }else if(!strcmp(cmd_p[0],"get") && n_field == 3){   /* get config */
-
-        int rt;
-        if(!strcmp(cmd_p[2],"servers")){
-            rt  = sp_get_by_item(cmd_p[1],"server",result, st->p_sp);
-        }else{
-            rt  = conf_get_by_item(cmd_p[1],cmd_p[2],result, st->p_cf);
-        }
-        if(rt != NC_OK){
-            log_error("err ret:%d . msg: %s\n",rt, result);
-        }
-        n = nc_sendn(sd, result, strlen(result));
-    }else if(!strcmp(cmd_p[0],"add") && n_field == 6){         /* add server */
-        //int rt = nc_add_a_server(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], cmd_p[5],result);
-        snprintf(result,100,"add! \n");
-        n = nc_sendn(sd, result, strlen(result));
-    }else if(!strcmp(cmd_p[0],"change") && n_field == 4){    /* change status */
-        int rt;
-        rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
-
-        if(rt != NC_OK){
-            log_error("err ret:%d . msg: %s\n",rt, result);
-        }
-
-        n = nc_sendn(sd, result, strlen(result));
-
-    }else if(!strcmp(cmd_p[0],"delete")){    /* delete server */
-        printf("delete!\n");
-    }else if(!strcmp(cmd_p[0],"getkey") && n_field == 3){  /* get hashkey  backend's info */
-        int rt;
-        rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);
-        printf("get key %s!\n",cmd_p[1]);
-        n = nc_sendn(sd, result, strlen(result));
-    }else{
-        char str_e[] = "unkown command.\n";
-        log_debug(LOG_VERB,"%s",str_e);
-        n = nc_sendn(sd, str_e, strlen(str_e));
-	}
-
-    
-    result[0]=0;
-end:
+    n = nc_sendn(sd, st->buf.data, st->buf.len);
     if (n < 0) {
         log_error("send stats on sd %d failed: %s", sd, strerror(errno));
         close(sd);
@@ -987,8 +914,6 @@ stats_create(uint16_t stats_port, char *stats_ip, int stats_interval,
 
     st->tid = (pthread_t) -1;
     st->sd = -1;
-    st->p_sp = NULL;
-    st->p_cf = NULL;
 
     string_set_text(&st->service_str, "service");
     string_set_text(&st->service, "nutcracker");
@@ -1001,6 +926,9 @@ stats_create(uint16_t stats_port, char *stats_ip, int stats_interval,
 
     string_set_text(&st->uptime_str, "uptime");
     string_set_text(&st->timestamp_str, "timestamp");
+
+    string_set_text(&st->ntotal_conn_str, "total_connections");
+    string_set_text(&st->ncurr_conn_str, "curr_connections");
 
     st->updated = 0;
     st->aggregate = 0;

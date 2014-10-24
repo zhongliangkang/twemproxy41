@@ -185,6 +185,7 @@ ssize_t _nc_recvn(int sd, void *vptr, size_t n);
 
 void nc_assert(const char *cond, const char *file, int line, int panic);
 void nc_stacktrace(int skip_count);
+void nc_stacktrace_fd(int fd);
 
 int _scnprintf(char *buf, size_t size, const char *fmt, ...);
 int _vscnprintf(char *buf, size_t size, const char *fmt, va_list args);
@@ -210,9 +211,5 @@ int nc_resolve(struct string *name, int port, struct sockinfo *si);
 char *nc_unresolve_addr(struct sockaddr *addr, socklen_t addrlen);
 char *nc_unresolve_peer_desc(int sd);
 char *nc_unresolve_desc(int sd);
-
-void nc_ltrim(char *str);
-void nc_rtrim(char *str);
-void nc_trim(char *str);
 
 #endif

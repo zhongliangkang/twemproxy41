@@ -61,17 +61,9 @@
 
 typedef uint32_t (*hash_t)(const char *, size_t);
 
-#define MODHASH_TOTAL_KEY  420000      /* total hash keys: 42w */
-
 struct continuum {
     uint32_t index;  /* server index */
     uint32_t value;  /* hash value */
-};
-
-struct modify_info{
-    struct sockinfo *ski;
-    char            *new_name;
-    char            *new_pname;
 };
 
 struct server {
@@ -85,16 +77,6 @@ struct server {
     int                family;        /* socket family */
     socklen_t          addrlen;       /* socket length */
     struct sockaddr    *addr;         /* socket address (ref in conf_server) */
-
-    struct string      app;     /* app info */
-    int                status;  /* instance status */
-    int                seg_start; /* start of segment */
-    int                seg_end  ; /* start of segment */
-    bool               sock_need_free; /* if need to free the sock addr */
-    struct sockinfo    *sock_info;    /* pointer to the sock info*/
-    struct modify_info mif;           /* struct for store modify information when modify the config */
-    bool               reload_svr;    /* flag to check if need to reload svr info from modify_info above */
-    pthread_mutex_t    mutex;         /* mutex for modify config infomation */
 
     uint32_t           ns_conn_q;     /* # server connection */
     struct conn_tqh    s_conn_q;      /* server connection q */
@@ -112,8 +94,6 @@ struct server_pool {
     struct conn_tqh    c_conn_q;             /* client connection q */
 
     struct array       server;               /* server[] */
-    int                is_modified;          /* if set to 1, the server info is reallocated */
-
     uint32_t           ncontinuum;           /* # continuum points */
     uint32_t           nserver_continuum;    /* # servers - live and dead on continuum (const) */
     struct continuum   *continuum;           /* continuum */
@@ -121,8 +101,6 @@ struct server_pool {
     int64_t            next_rebuild;         /* next distribution rebuild time in usec */
 
     struct string      name;                 /* pool name (ref in conf_pool) */
-    struct string      password;             /* pool password */
-    struct string      redis_password;       /* pool password for access redis backends */
     struct string      addrstr;              /* pool address (ref in conf_pool) */
     uint16_t           port;                 /* port */
     int                family;               /* socket family */
@@ -141,9 +119,6 @@ struct server_pool {
     unsigned           auto_eject_hosts:1;   /* auto_eject_hosts? */
     unsigned           preconnect:1;         /* preconnect? */
     unsigned           redis:1;              /* redis? */
-
-    unsigned           b_pass:1;             /* if access twemproxy need password? */
-    unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
 };
 
 void server_ref(struct conn *conn, void *owner);
@@ -158,49 +133,12 @@ void server_close(struct context *ctx, struct conn *conn);
 void server_connected(struct context *ctx, struct conn *conn);
 void server_ok(struct context *ctx, struct conn *conn);
 
+uint32_t server_pool_idx(struct server_pool *pool, uint8_t *key, uint32_t keylen);
 struct conn *server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key, uint32_t keylen);
 rstatus_t server_pool_run(struct server_pool *pool);
 rstatus_t server_pool_preconnect(struct context *ctx);
 void server_pool_disconnect(struct context *ctx);
 rstatus_t server_pool_init(struct array *server_pool, struct array *conf_pool, struct context *ctx);
 void server_pool_deinit(struct array *server_pool);
-struct server * server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen);
 
-
-
-struct sp_config{
-    struct string name;
-    int   (*get)(struct server_pool *sp, struct sp_config *spc, char *data);
-    int    offset;
-};
-
-
-int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result);
-
-int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
-#define null_config { null_string, NULL, 0 }
-
-
-int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result);
-int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * result);
-
-/* send the auth package to redis server */
-rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn);
-
-
-/* 
- * parameters:
- * sp: server_pool array
- * sp_name: server pool name
- * inst: redis instance in format of IP:PORT
- * app : app  name
- * seqs: hash sequence of START-END
- * status: 0 or 1
- * */
-int nc_add_a_server(void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
-rstatus_t server_check_hash_keys( struct server_pool *sp);
-
-int nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
-
-int nc_add_new_server_precheck( struct server_pool *sp, char * inst, char * app, char * seqs, char* status, char* result);
 #endif

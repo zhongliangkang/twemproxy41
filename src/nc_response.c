@@ -158,6 +158,27 @@ rsp_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         log_debug(LOG_ERR, "filter stray rsp %"PRIu64" len %"PRIu32" on s %d",
                   msg->id, msg->mlen, conn->sd);
         rsp_put(msg);
+
+        /*
+         * Memcached server can respond with an error response before it has
+         * received the entire request. This is most commonly seen for set
+         * requests that exceed item_size_max. IMO, this behavior of memcached
+         * is incorrect. The right behavior for update requests that are over
+         * item_size_max would be to either:
+         * - close the connection Or,
+         * - read the entire item_size_max data and then send CLIENT_ERROR
+         *
+         * We handle this stray packet scenario in nutcracker by closing the
+         * server connection which would end up sending SERVER_ERROR to all
+         * clients that have requests pending on this server connection. The
+         * fix is aggresive, but not doing so would lead to clients getting
+         * out of sync with the server and as a result clients end up getting
+         * responses that don't correspond to the right request.
+         *
+         * See: https://github.com/twitter/twemproxy/issues/149
+         */
+        conn->err = EINVAL;
+        conn->done = 1;
         return true;
     }
     ASSERT(pmsg->peer == NULL);
@@ -195,7 +216,7 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     struct msg *pmsg;
     struct conn *c_conn;
 
-   // ASSERT(!s_conn->client && !s_conn->proxy);
+    ASSERT(!s_conn->client && !s_conn->proxy);
 
     /* response from server implies that server is ok and heartbeating */
     server_ok(ctx, s_conn);
@@ -215,12 +236,6 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     msg->pre_coalesce(msg);
 
     c_conn = pmsg->owner;
-
-    if(c_conn == NULL){
-        msg_put(pmsg);
-        return;
-    }
-
     ASSERT(c_conn->client && !c_conn->proxy);
 
     if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {

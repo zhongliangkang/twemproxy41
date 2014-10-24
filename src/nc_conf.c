@@ -20,7 +20,6 @@
 #include <nc_server.h>
 #include <proto/nc_proto.h>
 
-
 #define DEFINE_ACTION(_hash, _name) string(#_name),
 static struct string hash_strings[] = {
     HASH_CODEC( DEFINE_ACTION )
@@ -42,87 +41,62 @@ static struct string dist_strings[] = {
 };
 #undef DEFINE_ACTION
 
-
 static struct command conf_commands[] = {
     { string("listen"),
       conf_set_listen,
-      conf_get_listen,
       offsetof(struct conf_pool, listen) },
 
     { string("hash"),
       conf_set_hash,
-      conf_get_hash,
       offsetof(struct conf_pool, hash) },
 
     { string("hash_tag"),
       conf_set_hashtag,
-      conf_get_string,
       offsetof(struct conf_pool, hash_tag) },
 
     { string("distribution"),
       conf_set_distribution,
-      conf_get_distribution,
       offsetof(struct conf_pool, distribution) },
 
     { string("timeout"),
       conf_set_num,
-      conf_get_num,
       offsetof(struct conf_pool, timeout) },
 
     { string("backlog"),
       conf_set_num,
-      conf_get_num,
       offsetof(struct conf_pool, backlog) },
 
     { string("client_connections"),
       conf_set_num,
-      conf_get_num,
       offsetof(struct conf_pool, client_connections) },
 
     { string("redis"),
       conf_set_bool,
-      conf_get_bool,
       offsetof(struct conf_pool, redis) },
 
     { string("preconnect"),
       conf_set_bool,
-      conf_get_bool,
       offsetof(struct conf_pool, preconnect) },
 
     { string("auto_eject_hosts"),
       conf_set_bool,
-      conf_get_bool,
       offsetof(struct conf_pool, auto_eject_hosts) },
 
     { string("server_connections"),
       conf_set_num,
-      conf_get_num,
       offsetof(struct conf_pool, server_connections) },
 
     { string("server_retry_timeout"),
       conf_set_num,
-      conf_get_num,
       offsetof(struct conf_pool, server_retry_timeout) },
 
     { string("server_failure_limit"),
       conf_set_num,
-      conf_get_num,
       offsetof(struct conf_pool, server_failure_limit) },
 
     { string("servers"),
       conf_add_server,
-      conf_get_servers,
       offsetof(struct conf_pool, server) },
-
-    { string("password"),
-      conf_set_string,
-      conf_get_string,
-      offsetof(struct conf_pool, password) },
-
-    { string("redis_password"),
-      conf_set_string,
-      conf_get_string,
-      offsetof(struct conf_pool, redis_password) },
 
     null_command
 };
@@ -132,12 +106,8 @@ conf_server_init(struct conf_server *cs)
 {
     string_init(&cs->pname);
     string_init(&cs->name);
-    string_init(&cs->app);
     cs->port = 0;
     cs->weight = 0;
-    cs->status= 0;
-    cs->seg_start= 0;
-    cs->seg_end= 0;
 
     memset(&cs->info, 0, sizeof(cs->info));
 
@@ -151,7 +121,6 @@ conf_server_deinit(struct conf_server *cs)
 {
     string_deinit(&cs->pname);
     string_deinit(&cs->name);
-    string_deinit(&cs->app);
     cs->valid = 0;
     log_debug(LOG_VVERB, "deinit conf server %p", cs);
 }
@@ -176,19 +145,6 @@ conf_server_each_transform(void *elem, void *data)
     s->port = (uint16_t)cs->port;
     s->weight = (uint32_t)cs->weight;
 
-    s->app   = cs->app;
-    s->status= cs->status;
-    s->seg_start    = cs->seg_start;
-    s->seg_end      = cs->seg_end;
-    s->sock_need_free = false;
-    s->sock_info      = &cs->info;
-    s->reload_svr     =false;
-    pthread_mutex_init(&s->mutex, NULL);
-
-    s->mif.ski       = NULL;
-    s->mif.new_name  = NULL;
-    s->mif.new_pname = NULL;
-
     s->family = cs->info.family;
     s->addrlen = cs->info.addrlen;
     s->addr = (struct sockaddr *)&cs->info.addr;
@@ -211,8 +167,6 @@ conf_pool_init(struct conf_pool *cp, struct string *name)
     rstatus_t status;
 
     string_init(&cp->name);
-    string_init(&cp->password);
-    string_init(&cp->redis_password);
 
     string_init(&cp->listen.pname);
     string_init(&cp->listen.name);
@@ -301,12 +255,6 @@ conf_pool_each_transform(void *elem, void *data)
     sp->next_rebuild = 0LL;
 
     sp->name = cp->name;
-    sp->password = cp->password;
-    sp->redis_password = cp->redis_password;
-
-    sp->b_pass = string_empty(&sp->password)? 0:1;
-    sp->b_redis_pass = string_empty(&sp->redis_password)? 0:1;
-
     sp->addrstr = cp->listen.pname;
     sp->port = (uint16_t)cp->listen.port;
 
@@ -318,9 +266,6 @@ conf_pool_each_transform(void *elem, void *data)
     sp->key_hash = hash_algos[cp->hash];
     sp->dist_type = cp->distribution;
     sp->hash_tag = cp->hash_tag;
-
-    //init, set to 0
-    sp->is_modified = 0;
 
     sp->redis = cp->redis ? 1 : 0;
     sp->timeout = cp->timeout;
@@ -335,7 +280,6 @@ conf_pool_each_transform(void *elem, void *data)
     sp->preconnect = cp->preconnect ? 1 : 0;
 
     status = server_init(&sp->server, &cp->server, sp);
-
     if (status != NC_OK) {
         return status;
     }
@@ -1362,21 +1306,9 @@ conf_post_validate(struct conf *cf)
             break;
         }
     }
-
     if (!valid) {
         return NC_ERROR;
     }
-
-    /* the keys for app range should be in 0~419999 */
-    for( valid = true,i = 0; i < npool; i++){
-        struct conf_pool *p1;
-
-        p1 = array_get(&cf->pool, i);
-
-
-    }
-
-
 
     return NC_OK;
 }
@@ -1464,7 +1396,6 @@ conf_set_string(struct conf *cf, struct command *cmd, void *conf)
     return CONF_OK;
 }
 
-
 char *
 conf_set_listen(struct conf *cf, struct command *cmd, void *conf)
 {
@@ -1515,7 +1446,6 @@ conf_set_listen(struct conf *cf, struct command *cmd, void *conf)
         if (field->port < 0 || !nc_valid_port(field->port)) {
             return "has an invalid port in \"hostname:port\" format string";
         }
-
     }
 
     status = string_copy(&field->name, name, namelen);
@@ -1540,16 +1470,13 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     struct array *a;
     struct string *value;
     struct conf_server *field;
-    uint8_t *p, *q, *start, *tp;
-    uint8_t *pname, *addr, *port, *weight, *name, *papp, *seg, *pstatus, *p_seg_start, *p_seg_end;
-    uint32_t k, delimlen, pnamelen, addrlen, portlen, weightlen, namelen, pstatus_len, seg_len, app_len, seg_start_len, seg_end_len;
+    uint8_t *p, *q, *start;
+    uint8_t *pname, *addr, *port, *weight, *name;
+    uint32_t k, delimlen, pnamelen, addrlen, portlen, weightlen, namelen;
     struct string address;
-    struct string app;
-    char delim[] = "   ::";
+    char delim[] = " ::";
 
     string_init(&address);
-    string_init(&app);
-
     p = conf;
     a = (struct array *)(p + cmd->offset);
 
@@ -1561,8 +1488,6 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     conf_server_init(field);
 
     value = array_top(&cf->arg);
-
-    log_debug(LOG_VERB,"content: %s\n",value->data);
 
     /* parse "hostname:port:weight [name]" or "/path/unix_socket:weight [name]" from the end */
     p = value->data + value->len - 1;
@@ -1576,48 +1501,33 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     name = NULL;
     namelen = 0;
 
-    delimlen = value->data[0] == '/' ? 4 : 5;
+    delimlen = value->data[0] == '/' ? 2 : 3;
 
-    log_debug(LOG_VERB," value:%s\n",value->data);
     for (k = 0; k < sizeof(delim); k++) {
         q = nc_strrchr(p, start, delim[k]);
         if (q == NULL) {
+            if (k == 0) {
+                /*
+                 * name in "hostname:port:weight [name]" format string is
+                 * optional
+                 */
+                continue;
+            }
             break;
         }
 
         switch (k) {
         case 0:
-            pstatus = q+1;
-            pstatus_len = (uint32_t)(p - pstatus +1);
+            name = q + 1;
+            namelen = (uint32_t)(p - name + 1);
             break;
 
         case 1:
-            seg = q + 1;
-            seg_len = (uint32_t)(p - seg + 1);
-            tp = nc_strrchr(seg + seg_len, seg, '-');
-            if(tp == NULL){
-                    p_seg_start = p_seg_end = seg;
-                    seg_start_len = seg_end_len = seg_len;
-            }else{
-                    p_seg_start = seg;
-                    seg_start_len = (uint32_t)(tp - p_seg_start);
-                    p_seg_end = tp+1;
-                    seg_end_len = (uint32_t)(seg + seg_len - tp - 1);
-            }
-
-            break;
-
-        case 2:
-            papp = q + 1;
-            app_len = (uint32_t)(p - papp + 1);
-            break;
-
-        case 3:
             weight = q + 1;
             weightlen = (uint32_t)(p - weight + 1);
             break;
 
-        case 4:
+        case 2:
             port = q + 1;
             portlen = (uint32_t)(p - port + 1);
             break;
@@ -1629,24 +1539,13 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
         p = q - 1;
     }
 
-    log_debug(LOG_VERB,"k delimlen: %d %d :status:%s, seg:%s,%s,%s, name:%s, port:%s,papp:%s\n",k,delimlen,pstatus,seg,p_seg_start,p_seg_end,name,port,papp);
-
     if (k != delimlen) {
         return "has an invalid \"hostname:port:weight [name]\"or \"/path/unix_socket:weight [name]\" format string";
     }
 
     pname = value->data;
     pnamelen = namelen > 0 ? value->len - (namelen + 1) : value->len;
-
-    log_debug(LOG_VERB,"%d %d pname:%s %d \n value:%s\n",seg_start_len,seg_end_len,pname,pnamelen,value->data);
-
     status = string_copy(&field->pname, pname, pnamelen);
-    if (status != NC_OK) {
-        array_pop(a);
-        return CONF_ERROR;
-    }
-
-    status = string_copy(&field->app, papp, app_len);
     if (status != NC_OK) {
         array_pop(a);
         return CONF_ERROR;
@@ -1655,20 +1554,11 @@ conf_add_server(struct conf *cf, struct command *cmd, void *conf)
     addr = start;
     addrlen = (uint32_t)(p - start + 1);
 
-    field->seg_start= nc_atoi(p_seg_start, seg_start_len);
-    field->seg_end= nc_atoi(p_seg_end, seg_end_len);
     field->weight = nc_atoi(weight, weightlen);
     if (field->weight < 0) {
         return "has an invalid weight in \"hostname:port:weight [name]\" format string";
-    }
-
-    if(field->seg_start > field->seg_end || field->seg_end >= MODHASH_TOTAL_KEY || field->seg_start <0){
-        return "has an invalid seg, valid range is [0 ~ 419999] ";
-    }
-
-    field->status= nc_atoi(pstatus, pstatus_len);
-    if (field->port < 0 ) {
-            return "has an invalid status in \"app segment status\" format string,should be 0 or 1";
+    } else if (field->weight == 0) {
+        return "has a zero weight in \"hostname:port:weight [name]\" format string";
     }
 
     if (value->data[0] != '/') {
@@ -1854,420 +1744,4 @@ conf_set_hashtag(struct conf *cf, struct command *cmd, void *conf)
     }
 
     return CONF_OK;
-}
-
-int 
-conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp){
-        //snprintf(result,80,"sp_name:%s\nsp_item:%s\n",sp_name,sp_item);
-        uint32_t n,m,i;
-        struct array *arr = sp;
-        int rt;
-
-        struct string item;
-        item.data=sp_item;
-        item.len = strlen(sp_item);
-
-        n = array_n(arr);
-
-        //printf("ctx->stats->p_cf element num: %d\n",n);
-        for(i=0;i<n;i++){
-                struct conf_pool *tcf = array_get(arr,i);
-                //printf("sname: %s\n",tcf->name.data);
-                //in this server pool
-                if(!strcmp(sp_name, tcf->name.data)){
-                         m = array_n(&tcf->server);
-                        /*for(j=0;j<m;j++){
-                                struct server *tss = array_get(&tcf->server,j);
-                                printf("%d name : %s\n",j,tss->name.data);
-                        } */
-
-                        rt = sp_get_config_by_string(tcf, &item, result);
-                        if( rt != NC_OK && rt != NC_DEF_CONF){
-                            //log_error("get config by string fail: %s\n",sp_item );
-                            snprintf(result,80,"get config by string fail: %s\n",sp_item );
-                            return NC_ERROR;
-                        }else{
-                            return rt;
-                        }
-
-                }
-        }
-
-        // not found the config
-        snprintf(result,80,"cannot find redis pool %s\n",sp_name );
-        return NC_ERROR;
-}
-
-rstatus_t conf_get_string( struct conf_pool *sp, struct command *spc, char * data){
-    uint8_t *p;
-    struct string *field ;
-
-    p = (uint8_t *)sp;
-    field = (struct string *)(p + spc->offset);
-
-    if( field->len){
-        snprintf(data, field->len + 1,"%s",field->data);
-        return  NC_OK;
-    }
-    
-    //err
-    return NC_ERROR;
-}
-
-rstatus_t conf_get_listen( struct conf_pool *sp, struct command *spc, char * data){
-    uint8_t *p;
-    struct conf_listen *field = NULL;
-
-    p = (uint8_t *)sp;
-    field = (struct conf_listen *)(p + spc->offset);
-
-    if( field != NULL){
-        snprintf(data, field->pname.len + 1,"%s", field->pname.data);
-        return  NC_OK;
-    }
-    
-    //err
-    return NC_ERROR;
-}
-
-
-rstatus_t conf_get_num( struct conf_pool *sp, struct command *spc, char * data){
-    uint8_t *p;
-    int *field = NULL;
-
-    p = (uint8_t *)sp;
-    field = (int *)(p + spc->offset);
-
-
-    if( field != NULL){
-
-        if( *field == CONF_UNSET_NUM){
-            snprintf(data,36,"%d (default value,user not config)",*field);
-            return NC_DEF_CONF;
-        }else{
-            snprintf(data,16,"%d",*field);
-            return  NC_OK;
-        }
-    }
-    
-    //err
-    return NC_ERROR;
-}
-
-rstatus_t conf_get_bool( struct conf_pool *sp, struct command *spc, char * data){
-    uint8_t *p;
-    int *field = NULL;
-
-    p = (uint8_t *)sp;
-    field = (int *)(p + spc->offset);
-
-    if( field != NULL){
-        snprintf(data,16,"%s",*field == 1? "true":"false");
-        return  NC_OK;
-    }
-    
-    //err
-    return NC_ERROR;
-}
-
-
-rstatus_t conf_get_hash( struct conf_pool *sp, struct command *spc, char * data){
-    uint8_t *p;
-    hash_type_t *field = NULL;
-    struct string *hs;
-
-    p = (uint8_t *)sp;
-    field = (hash_type_t *)(p + spc->offset);
-
-
-    if( field != NULL){
-        hs = hash_strings + (*field);
-        snprintf(data, sizeof(hs->data)+1,"%s",hs->data);
-        return  NC_OK;
-    }
-    
-    //err
-    return NC_ERROR;
-}
-
-rstatus_t conf_get_distribution( struct conf_pool *sp, struct command *spc, char * data){
-    uint8_t *p;
-    dist_type_t *field = NULL;
-    struct string *hs;
-
-    p = (uint8_t *)sp;
-    field = (dist_type_t *)(p + spc->offset);
-
-    hs = dist_strings + *field;
-
-    if( field != NULL){
-        snprintf(data, sizeof(hs->data) + 1,"%s",hs->data);
-        return  NC_OK;
-    }
-    
-    //err
-    return NC_ERROR;
-}
-
-int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char * result){
-    struct  command * spp;
-
-     log_debug(LOG_VERB, " in sp_get_config_by_string");
-    for(spp = conf_commands; spp->name.len != 0; spp++){
-        rstatus_t rv;
-
-        if(string_compare( item, &spp->name) !=0){
-            continue;
-        }
-
-        rv = spp->get(sp, spp, result);
-
-        if(rv != NC_OK && rv!= NC_DEF_CONF){
-            //log_error("sp_get_conf_by_string error: \"%.*s\" %d", item->len, item->data, rv);
-            // maybe the config item is null. as hash_tag
-            return NC_ERROR;
-        }
-
-        return rv;
-    }
-
-    log_error("sp_get_conf_by_string error: \"%.*s\" is unkown",item->len, item->data);
-
-    return NC_ERROR;
-}
-
-rstatus_t conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result){
-    uint8_t *p;
-    struct array *arr= NULL;
-    int svr_num=0;
-    int i;
-    char *strp;
-
-    p = cf;
-    arr = (struct array *)(p + cmd->offset);
-    svr_num = array_n(arr);
-
-    strp = result;
-
-    for (i = 0; i < svr_num; i++) {
-        struct conf_server *cs = array_get(arr, i);
-        snprintf(strp, cs->pname.len + 2,"%s\n",cs->pname.data);
-        //printf("==== %s\n",cs->pname.data);
-        strp = result+strlen(result);
-    }
-
-    return NC_OK;
-}
-
-/*
- *  conf_buff: output string 
- *  line: content of config line
- *  conf_level: 0 => yml root conf, 1 => yml common config , 2 => yml server detail config
- *  bool with_head:  if need to add head space to fill the config, true need, else not
- *  bool change_line: if need to print with an '\n' at the end, true need, else not
- * */
-static char * 
-sp_write_line( char * conf_buff, char *line, int conf_level, bool with_head,bool change_line){
-
-    if( with_head){
-        switch(conf_level){
-            case 0:     /* yml root conf */
-                break;
-            case 1:     /* yml level 1 conf */
-                nc_snprintf(conf_buff, 3, "  ");
-                conf_buff += 2;
-                break;
-            case 2:
-                nc_snprintf(conf_buff,6 ,"   - ");
-                conf_buff += 5;
-                break;
-            default:
-                NOT_REACHED();
-                ASSERT(0);
-        }
-    }
-
-    if(change_line){
-        nc_snprintf( conf_buff, nc_strlen(line) + 2,"%s\n", line);
-        conf_buff += nc_strlen(line) + 1;
-    }else{
-        nc_snprintf( conf_buff, nc_strlen(line) + 1,"%s", line);
-        conf_buff += nc_strlen(line) ;
-    }
-
-
-    return conf_buff;
-}
-
-
-/* rewrite config */
-rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, char *new_pname){
-    struct conf *cf;
-    char  *conf_filename = NULL;
-
-    /* buffer for config file */
-    char  new_conffile[CONF_MAX_LENGTH];
-    char  * p_conf;  /* pointer point to the end of config file */
-    uint32_t i,j, sp_num, svr_num;
-    struct array *pool;
-    struct server_pool *lsp;
-    struct server *svr;
-    struct conf_pool *tcf;
-
-    struct command *cmd;
-
-    FILE *fh;
-
-    ASSERT(sp->ctx->cf);
-    ASSERT(&sp->ctx->pool);
-
-    cf = sp->ctx->cf;
-    pool = &sp->ctx->pool;
-
-    sp_num = array_n(pool);
-
-    conf_filename = cf->fname;
-    p_conf = new_conffile;
-
-    ASSERT(conf_filename);
-
-   
-
-    // read the config, and replace the new config
-    for( i=0; i<sp_num; i++){
-        lsp = array_get(pool, i);
-        tcf = array_get(&cf->pool, i);
-
-        ASSERT(lsp);
-        ASSERT(tcf);
-
-        char conf_item[1024];  /* each conf line 1k */
-        char conf_item2[1024];  /* each conf line 1k */
-        int ret;
-
-
-        nc_snprintf(conf_item, 1024,"%s:", lsp->name.data);
-
-        p_conf = sp_write_line(p_conf, conf_item, 0, true, true); /* root config */
-
-        /* read each config item */ 
-        for (cmd = conf_commands; cmd->name.len != 0; cmd++) {
-
-
-            if( !strcmp(cmd->name.data, "servers")||
-                    !strcmp(cmd->name.data, "client_connections")){
-                //ret = sp_get_by_item(lsp->name.data,"server",conf_item, pool);
-                ///* skip client_connections  and servers */
-                continue;      
-            }
-
-            snprintf(conf_item2,1024,"%s: ", cmd->name.data);
-            ret = conf_get_by_item(lsp->name.data ,cmd->name.data , conf_item, &cf->pool);
-
-            log_debug(LOG_VERB, "get item: %s %s => %s",lsp->name.data, cmd->name.data, conf_item);
-
-            if(ret == NC_OK){
-                p_conf = sp_write_line(p_conf, conf_item2, 1,true,false);
-                p_conf = sp_write_line(p_conf, conf_item, 1, false, true);
-            }
-        }
-
-        
-        p_conf = sp_write_line(p_conf, "servers:", 1, true, true);
-        svr_num = array_n(&lsp->server);
-        for(j=0; j< svr_num; j++){
-            svr = array_get(&lsp->server,j);
-
-            // add lock,here we need read the svr->reload_svr flag, for safe
-            pthread_mutex_lock(&svr->mutex);
-
-            if( i == sp_idx && j == svr_idx){
-                // the server changed, write new config 
-                p_conf = sp_write_line(p_conf, new_pname, 2, true, true);
-            }else{
-
-                // bug fix: @2014.5.16 by skykang
-                // maybe there is changed instance, but no connection connected ever,
-                // so here we need to check if there is changed instance,if changed ,use the new instance info
-                if(svr->reload_svr){
-                    
-                    ASSERT((char *)svr->mif.new_pname);
-                    p_conf = sp_write_line(p_conf, (char *)svr->mif.new_pname, 2, true, true);
-                } else{
-
-                    p_conf = sp_write_line(p_conf, (char *)svr->pname.data, 2, true, true);
-                }
-            }
-
-            // unlock
-            pthread_mutex_unlock(&svr->mutex);
-        }
-        
-    }
-
-
-    ASSERT( p_conf - new_conffile < CONF_MAX_LENGTH);
-
-    fh = fopen(conf_filename, "w");
-    if (fh == NULL) {
-        log_error("conf: failed to open configuration '%s': %s", conf_filename,
-                strerror(errno));
-        return NC_ERROR;
-    }
-
-    fprintf(fh, "%s", new_conffile);
-    fclose(fh);
-
-    return NC_OK;
-}
-
-
-
-rstatus_t conf_check_hash_keys(struct conf_pool *p){
-    bool keys_flag[MODHASH_TOTAL_KEY];
-    uint32_t n_server, i, j, hash_count;
-
-    memset(keys_flag, 0, sizeof(keys_flag));
-
-    ASSERT(p);
-    n_server = array_n(&p->server);
-    //record the hash slot number of status 1
-    hash_count = 0;
-
-    for(i = 0; i< n_server; i++){
-        struct conf_server * cs = array_get(&p->server, i);
-        if(cs->status < 1)
-            continue;
-
-        for(j = cs->seg_start; j<=cs->seg_end; j++){
-            if(keys_flag[j] == 0 && j< MODHASH_TOTAL_KEY ){
-                keys_flag[j] = 1;
-                hash_count ++;
-            }else{
-                // more than 1 key slot status is 1. or the j is bigger than MODHASH_TOTAL_KEY
-                log_error("error: hash key '%d' has more than one status is 1!\n",j);
-                return NC_ERROR;
-            }
-        }
-    }
-
-    ASSERT(hash_count <= MODHASH_TOTAL_KEY);
-
-    // not enogh slot status is 1!
-    if(hash_count < MODHASH_TOTAL_KEY){
-        log_error("error: there are %d keys have no valid backends!\n",MODHASH_TOTAL_KEY - hash_count);
-        //print 10 error key
-        for(i=0, j=0; i< MODHASH_TOTAL_KEY; i++){
-            if(keys_flag[i] == 0){
-                log_error("error: key '%d' has no valid backend.\n",i);
-                j++;
-            }
-            if(j>10)
-                break;
-        }
-        return NC_ERROR;
-
-    }
-
-    return NC_OK;
 }

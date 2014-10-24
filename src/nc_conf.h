@@ -54,8 +54,6 @@
 #define CONF_DEFAULT_SERVER_CONNECTIONS      1
 #define CONF_DEFAULT_KETAMA_PORT             11211
 
-#define CONF_MAX_LENGTH                     64 * 1024          /* define 64K  as max config file length*/
-
 struct conf_listen {
     struct string   pname;   /* listen: as "name:port" */
     struct string   name;    /* name */
@@ -67,20 +65,14 @@ struct conf_listen {
 struct conf_server {
     struct string   pname;      /* server: as "name:port:weight" */
     struct string   name;       /* name */
-    struct string   app;       /* name */
     int             port;       /* port */
     int             weight;     /* weight */
     struct sockinfo info;       /* connect socket info */
     unsigned        valid:1;    /* valid? */
-    int             status;
-    int             seg_start;
-    int             seg_end;
 };
 
 struct conf_pool {
     struct string      name;                  /* pool name (root node) */
-    struct string      password;              /* password for twemproxy access */
-    struct string      redis_password;        /* password for access redis backends */
     struct conf_listen listen;                /* listen: */
     hash_type_t        hash;                  /* hash: */
     struct string      hash_tag;              /* hash_tag: */
@@ -119,35 +111,10 @@ struct conf {
 struct command {
     struct string name;
     char          *(*set)(struct conf *cf, struct command *cmd, void *data);
-    rstatus_t     (*get)(struct conf_pool *cf, struct command *cmd, char *data);
     int           offset;
 };
 
-#define null_command { null_string, NULL, NULL, 0 }
-
-/*
-#define DEFINE_ACTION(_hash, _name) string(#_name),
-struct string hash_strings[] = {
-        HASH_CODEC( DEFINE_ACTION )
-                null_string
-};
-#undef DEFINE_ACTION
-
-#define DEFINE_ACTION(_hash, _name) hash_##_name,
-hash_t hash_algos[] = {
-        HASH_CODEC( DEFINE_ACTION )
-                NULL
-};
-#undef DEFINE_ACTION
-
-#define DEFINE_ACTION(_dist, _name) string(#_name),
-struct string dist_strings[] = {
-        DIST_CODEC( DEFINE_ACTION )
-                null_string
-};
-#undef DEFINE_ACTION
-
-*/
+#define null_command { null_string, NULL, 0 }
 
 char *conf_set_string(struct conf *cf, struct command *cmd, void *conf);
 char *conf_set_listen(struct conf *cf, struct command *cmd, void *conf);
@@ -158,26 +125,10 @@ char *conf_set_hash(struct conf *cf, struct command *cmd, void *conf);
 char *conf_set_distribution(struct conf *cf, struct command *cmd, void *conf);
 char *conf_set_hashtag(struct conf *cf, struct command *cmd, void *conf);
 
-rstatus_t conf_get_string(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_listen(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_num(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_bool(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_hash(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_distribution(struct conf_pool *cf, struct command *cmd, char *result);
-rstatus_t conf_get_hashtag(struct conf_pool *cf, struct command *cmd, char *result);
-
-
 rstatus_t conf_server_each_transform(void *elem, void *data);
 rstatus_t conf_pool_each_transform(void *elem, void *data);
 
 struct conf *conf_create(char *filename);
 void conf_destroy(struct conf *cf);
-
-int conf_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
-int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
-rstatus_t  sp_write_conf_file(struct server_pool *sp, int sp_idx, int svr_idx, char *new_name);
-
-rstatus_t conf_check_hash_keys(struct conf_pool *p);
 
 #endif

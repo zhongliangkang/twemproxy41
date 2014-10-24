@@ -300,6 +300,18 @@ nc_stacktrace(int skip_count)
 }
 
 void
+nc_stacktrace_fd(int fd)
+{
+#ifdef NC_HAVE_BACKTRACE
+    void *stack[64];
+    int size;
+
+    size = backtrace(stack, 64);
+    backtrace_symbols_fd(stack, size, fd);
+#endif
+}
+
+void
 nc_assert(const char *cond, const char *file, int line, int panic)
 {
     log_error("assert '%s' failed @ (%s, %d)", cond, file, line);
@@ -621,27 +633,4 @@ nc_unresolve_desc(int sd)
     }
 
     return nc_unresolve_addr(addr, addrlen);
-}
-
-void nc_ltrim(char *s){
-    int  n,i=0,j;
-    n=strlen(s);
-
-    while( s[i] == ' ' || s[i] == '\t') { i++; };
-    for(j=i;j<n;j++){
-        s[j-i]=s[j];
-    }
-    s[n-i]='\0';
-}
-
-void nc_rtrim(char *s){
-    size_t i;
-    i = strlen(s) - 1;
-    while((s[i] ==' ' || s[i] == '\t') && i>=0 ) { i--; }
-    s[i+1] = '\0';
-}
-
-void nc_trim(char *s){
-    nc_ltrim(s);
-    nc_rtrim(s);
 }
