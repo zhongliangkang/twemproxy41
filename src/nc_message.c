@@ -627,8 +627,6 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
 		if (conn->client) {
 			if (msg->type != MSG_REQ_REDIS_AUTH) {
 				//return a error msg
-				msg->error = 1;
-				msg->err = EAUTH;
 				msg->noforward = 1;
 			}
 		} else if (! conn->client && ! conn->proxy) { //is server conn

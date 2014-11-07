@@ -2493,12 +2493,13 @@ rstatus_t redis_reply(struct msg *r) {
 	uint32_t hash, slot;
 	char buf[64];
 
-	struct string msg1 = string ("-ERR Client sent AUTH, but no password is set\r\n");
+	const struct string msg1 = string ("-ERR Client sent AUTH, but no password is set\r\n");
+	const struct string msg_noauth = string ("-NOAUTH Authentication required.\r\n");
 
 	ASSERT(response != NULL);
 
 	if (r->owner->authed == 0 && MSG_REQ_REDIS_AUTH != r->type ) {
-		return msg_append(response, (uint8_t *) "-AUTH ERROR\r\n", 13);
+		return msg_append(response, msg_noauth.data, msg_noauth.len);
 	}
 
 	switch (r->type) {
@@ -2510,7 +2511,7 @@ rstatus_t redis_reply(struct msg *r) {
 		kpos = array_get(r->keys, 0);
 
 		if (kpos == NULL) {
-			return msg_append(response, (uint8_t *) "-AUTH ERROR\r\n", 13);
+			return msg_append(response, msg_noauth.data, msg_noauth.len);
 		}
 
 		key_len = (uint32_t) (kpos->end - kpos->start);
@@ -2525,7 +2526,7 @@ rstatus_t redis_reply(struct msg *r) {
 
 		} else {
 			r->owner->authed = 0;
-			return msg_append(response, (uint8_t *) "+AUTH ERROR\r\n", 13);
+			return msg_append(response, msg_noauth.data, msg_noauth.len);
 		}
 
 	case MSG_REQ_REDIS_GETSERVER:
