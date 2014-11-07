@@ -47,10 +47,18 @@
     ACTION( in_queue_bytes,         STATS_GAUGE,        "current request bytes in incoming queue")                  \
     ACTION( out_queue,              STATS_GAUGE,        "# requests in outgoing queue")                             \
     ACTION( out_queue_bytes,        STATS_GAUGE,        "current request bytes in outgoing queue")                  \
+    ACTION( redirect_succ,          STATS_COUNTER,      "# redirect succ")                                     \
+    ACTION( redirect_fail,          STATS_COUNTER,      "# redirect fail, return ETIME")                       \
 
 #define STATS_ADDR      "0.0.0.0"
 #define STATS_PORT      22222
 #define STATS_INTERVAL  (30 * 1000) /* in msec */
+
+
+#define MAX_COMMAND_FIELD  7  /* max command field ,here our max fields in command is 6 */
+#define MAX_COMMAND_LENGTH 20 /* max command field ,here our max fields in command is 6 */
+#define STATS_RESULT_BUFLEN 10240  /*the buf length output of stat command*/
+
 
 typedef enum stats_type {
     STATS_INVALID,
@@ -114,6 +122,9 @@ struct stats {
 
     volatile int        aggregate;       /* shadow (b) aggregate? */
     volatile int        updated;         /* current (a) updated? */
+
+    void  *             p_cf;          /* point to config instance */
+    void  *             p_sp;          /* point to server pool */
 };
 
 #define DEFINE_ACTION(_name, _type, _desc) STATS_POOL_##_name,
@@ -212,4 +223,9 @@ struct stats *stats_create(uint16_t stats_port, char *stats_ip, int stats_interv
 void stats_destroy(struct stats *stats);
 void stats_swap(struct stats *stats);
 
+void stats_destroy_buf(struct stats *st);
+rstatus_t stats_create_buf(struct stats *st);
+
+rstatus_t stats_pool_add_server (struct server_pool *pool, uint32_t newsvr_idx);
+rstatus_t stats_server_add_one (struct array *stats_server, struct array *server, uint32_t newsvr_idx);
 #endif

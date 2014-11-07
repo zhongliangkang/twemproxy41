@@ -77,6 +77,9 @@ redis_arg0(struct msg *r)
     case MSG_REQ_REDIS_ZCARD:
 
     case MSG_REQ_REDIS_PFCOUNT:
+
+    case MSG_REQ_REDIS_GETSERVER:
+    case MSG_REQ_REDIS_AUTH:
         return true;
 
     default:
@@ -120,6 +123,8 @@ redis_arg1(struct msg *r)
     case MSG_REQ_REDIS_ZRANK:
     case MSG_REQ_REDIS_ZREVRANK:
     case MSG_REQ_REDIS_ZSCORE:
+
+
         return true;
 
     default:
@@ -232,7 +237,10 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_ZRANGEBYLEX:
     case MSG_REQ_REDIS_ZREVRANGEBYSCORE:
     case MSG_REQ_REDIS_ZUNIONSTORE:
+
     case MSG_REQ_REDIS_ZSCAN:
+    case MSG_REQ_REDIS_MGET_SINGLE_REDIS:
+
         return true;
 
     default:
@@ -590,6 +598,9 @@ redis_parse_req(struct msg *r)
                 }
                 if (str4icmp(m, 'm', 's', 'e', 't')) {
                     r->type = MSG_REQ_REDIS_MSET;
+                    if (r->narg % 2 != 1) {
+                    	   goto error;
+                    }
                     break;
                 }
 
@@ -617,6 +628,12 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_PING;
                     r->noforward = 1;
                     break;
+                }
+
+                if (str4icmp(m, 'a', 'u', 't', 'h')) {
+                            r->type = MSG_REQ_REDIS_AUTH;
+                            r->noforward = 1;
+                            break;
                 }
 
                 if (str4icmp(m, 'q', 'u', 'i', 't')) {
@@ -717,6 +734,7 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_PFADD;
                     break;
                 }
+
 
                 break;
 
@@ -938,6 +956,11 @@ redis_parse_req(struct msg *r)
                 if (str9icmp(m, 'z', 'l', 'e', 'x', 'c', 'o', 'u', 'n', 't')) {
                     r->type = MSG_REQ_REDIS_ZLEXCOUNT;
                     break;
+                }
+                if (str9icmp(m, 'g', 'e', 't', 's', 'e', 'r', 'v', 'e', 'r')) {
+                     r->type = MSG_REQ_REDIS_GETSERVER;
+                     r->noforward = 1;
+                     break;
                 }
 
                 break;
@@ -2109,12 +2132,18 @@ redis_copy_bulk(struct msg *dst, struct msg *src)
 
     /* copy len bytes to dst */
     for (; mbuf;) {
+
         if (mbuf_length(mbuf) <= len) {     /* steal this buf from src to dst */
             nbuf = STAILQ_NEXT(mbuf, next);
             mbuf_remove(&src->mhdr, mbuf);
             if (dst != NULL) {
                 mbuf_insert(&dst->mhdr, mbuf);
             }
+
+            /* for redirect occur*/
+            dst->v_start = mbuf->pos;
+            dst->v_len = mbuf_length(mbuf);
+
             len -= mbuf_length(mbuf);
             mbuf = nbuf;
         } else {                             /* split it */
@@ -2218,6 +2247,8 @@ redis_pre_coalesce(struct msg *r)
                     "with unknown type %d", r->type);
         pr->error = 1;
         pr->err = EINVAL;
+
+
         break;
     }
 }
@@ -2316,8 +2347,9 @@ redis_append_key(struct msg *r, uint8_t *key, uint32_t keylen)
  *                |  \ ----------+    |                          |
  *                +---\---------------+                          |
  *                     ------------------------------------------+
- *
+ *  cycker: for redirect split the msg to n sub msg, n = key number
  */
+
 static rstatus_t
 redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq,
                     uint32_t key_step)
@@ -2329,7 +2361,8 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
 
     ASSERT(array_n(r->keys) == (r->narg - 1) / key_step);
 
-    sub_msgs = nc_zalloc(ncontinuum * sizeof(*sub_msgs));
+    // sub_msgs = nc_zalloc(ncontinuum * sizeof(*sub_msgs));
+    sub_msgs = nc_zalloc(array_n(r->keys) * sizeof(*sub_msgs));
     if (sub_msgs == NULL) {
         return NC_ENOMEM;
     }
@@ -2364,8 +2397,8 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
     for (i = 0; i < array_n(r->keys); i++) {        /* for each key */
         struct msg *sub_msg;
         struct keypos *kpos = array_get(r->keys, i);
-        uint32_t idx = msg_backend_idx(r, kpos->start, kpos->end - kpos->start);
-
+        //uint32_t idx = msg_backend_idx(r, kpos->start, kpos->end - kpos->start);
+        uint32_t idx = i;
         if (sub_msgs[idx] == NULL) {
             sub_msgs[idx] = msg_get(r->owner, r->request, r->redis);
             if (sub_msgs[idx] == NULL) {
@@ -2401,7 +2434,7 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
         }
     }
 
-    for (i = 0; i < ncontinuum; i++) {     /* prepend mget header, and forward it */
+    for (i = 0; i < array_n(r->keys); i++) {     /* prepend mget header, and forward it */
         struct msg *sub_msg = sub_msgs[i];
         if (sub_msg == NULL) {
             continue;
@@ -2450,21 +2483,74 @@ redis_fragment(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq)
     }
 }
 
-rstatus_t
-redis_reply(struct msg *r)
-{
-    struct msg *response = r->peer;
+rstatus_t redis_reply(struct msg *r) {
+	struct msg *response = r->peer;
+	size_t key_len;
+	uint8_t *key;
+	struct server_pool *sp;
+	struct server *server;
+	struct keypos *kpos;
+	uint32_t hash, slot;
+	char buf[64];
 
-    ASSERT(response != NULL);
+	struct string msg1 = string ("-ERR Client sent AUTH, but no password is set\r\n");
 
-    switch (r->type) {
-    case MSG_REQ_REDIS_PING:
-        return msg_append(response, (uint8_t *)"+PONG\r\n", 7);
+	ASSERT(response != NULL);
 
-    default:
-        NOT_REACHED();
-        return NC_ERROR;
-    }
+	if (r->owner->authed == 0 && MSG_REQ_REDIS_AUTH != r->type ) {
+		return msg_append(response, (uint8_t *) "-AUTH ERROR\r\n", 13);
+	}
+
+	switch (r->type) {
+	case MSG_REQ_REDIS_PING:
+		return msg_append(response, (uint8_t *) "+PONG\r\n", 7);
+
+	case MSG_REQ_REDIS_AUTH:
+		sp = r->owner->owner;
+		kpos = array_get(r->keys, 0);
+
+		if (kpos == NULL) {
+			return msg_append(response, (uint8_t *) "-AUTH ERROR\r\n", 13);
+		}
+
+		key_len = (uint32_t) (kpos->end - kpos->start);
+
+		if (sp->password.len == 0) {
+			return msg_append(response, (uint8_t *) msg1.data, msg1.len);
+		}
+
+		if (sp->password.len == key_len && 0 == strncmp(sp->password.data, kpos->start, key_len)) {
+			r->owner->authed = 1;
+			return msg_append(response, (uint8_t *) "+OK\r\n", 5);
+
+		} else {
+			r->owner->authed = 0;
+			return msg_append(response, (uint8_t *) "+AUTH ERROR\r\n", 13);
+		}
+
+	case MSG_REQ_REDIS_GETSERVER:
+		sp = r->owner->owner;
+		kpos = array_get(r->keys, 0);
+
+		if (kpos == NULL) {
+			return msg_append(response, (uint8_t *) "-ERR\r\n", 5);
+		}
+
+		key_len = (uint32_t) (kpos->end - kpos->start);
+
+		hash = server_pool_hash(sp, kpos->start, key_len);
+		slot = hash % sp->ncontinuum;
+
+		server = server_pool_server(sp, kpos->start, key_len, 0);
+		snprintf(buf, 64, "$%d"CRLF"%s"CRLF, server->pname.len, server->pname.data);
+		return msg_append(response, (uint8_t *) buf, strlen(buf));
+
+	default:
+
+
+		NOT_REACHED();
+		return NC_ERROR;
+	}
 }
 
 void

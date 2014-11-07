@@ -50,6 +50,7 @@ core_ctx_create(struct instance *nci)
 {
     rstatus_t status;
     struct context *ctx;
+    uint32_t n,i,j,m;
 
     ctx = nc_alloc(sizeof(*ctx));
     if (ctx == NULL) {
@@ -93,9 +94,27 @@ core_ctx_create(struct instance *nci)
         return NULL;
     }
 
+
     /* create stats per server pool */
     ctx->stats = stats_create(nci->stats_port, nci->stats_addr, nci->stats_interval,
                               nci->hostname, &ctx->pool);
+
+    ctx->stats->p_cf =(void *) &ctx->cf->pool;
+    ctx->stats->p_sp =(void *) &ctx->pool;
+    n = array_n(&ctx->pool);
+
+
+    for(i=0;i<n;i++){
+            struct server_pool *tcf = array_get(&ctx->pool,i);
+            log_debug(LOG_VVERB,"load pool idx: %i, name : %.*s", i,tcf->name.len, tcf->name.data);
+            m = array_n(&tcf->server);
+            for(j=0;j<m;j++){
+                    struct server *tss = array_get(&tcf->server,j);
+                    log_debug(LOG_VVERB,"%d name : %s",j,tss->name.data);
+            }
+    }
+    
+
     if (ctx->stats == NULL) {
         server_pool_deinit(&ctx->pool);
         conf_destroy(ctx->cf);
@@ -104,7 +123,7 @@ core_ctx_create(struct instance *nci)
     }
 
     /* initialize event handling for client, proxy and server */
-    ctx->evb = event_base_create(EVENT_SIZE, &core_core);
+    ctx->evb = event_base_create(EVENT_SIZE, &core_core); //1024 , core_core:event handle
     if (ctx->evb == NULL) {
         stats_destroy(ctx->stats);
         server_pool_deinit(&ctx->pool);
@@ -125,7 +144,7 @@ core_ctx_create(struct instance *nci)
         return NULL;
     }
 
-    /* initialize proxy per server pool */
+    /* initialize proxy per server pool, which listen to 12345*/
     status = proxy_init(ctx);
     if (status != NC_OK) {
         server_pool_disconnect(ctx);
@@ -349,6 +368,9 @@ core_loop(struct context *ctx)
 {
     int nsd;
 
+    /*
+     * event_wait:	wait the msg , and do core_core
+     */
     nsd = event_wait(ctx->evb, ctx->timeout);
     if (nsd < 0) {
         return nsd;

@@ -1,0 +1,4 @@
+file transfer
+set args twemproxy-list nosqlproxy 127.0.0.1:30000 127.0.0.1:30001 1 2
+br parse_ipport
+run

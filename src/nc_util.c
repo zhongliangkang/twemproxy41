@@ -634,3 +634,28 @@ nc_unresolve_desc(int sd)
 
     return nc_unresolve_addr(addr, addrlen);
 }
+
+void nc_ltrim(char *s){
+    int  n,i=0,j;
+    n= (int) strlen(s);
+
+    while( s[i] == ' ' || s[i] == '\t') { i++; };
+    for(j=i;j<n;j++){
+        s[j-i]=s[j];
+    }
+    s[n-i]='\0';
+}
+
+void nc_rtrim(char *s){
+    int i;
+    i = (int) strlen(s) - 1;
+    while((s[i] ==' ' || s[i] == '\t') && i>=0 ) { i--; }
+    s[i+1] = '\0';
+}
+
+void nc_trim(char *s){
+    nc_ltrim(s);
+    nc_rtrim(s);
+}
+
+

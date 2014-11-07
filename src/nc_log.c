@@ -33,12 +33,15 @@ log_init(int level, char *name)
 
     l->level = MAX(LOG_EMERG, MIN(level, LOG_PVERB));
     l->name = name;
-    if (name == NULL || !strlen(name)) {
+    l->write_count = 0;
+    l->realname = 0;
+	log_init_realname();
+    if (l->realname == NULL || !strlen(l->realname)) {
         l->fd = STDERR_FILENO;
     } else {
-        l->fd = open(name, O_WRONLY | O_APPEND | O_CREAT, 0644);
+        l->fd = open(l->realname, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (l->fd < 0) {
-            log_stderr("opening log file '%s' failed: %s", name,
+            log_stderr("opening log file '%s' failed: %s", l->realname,
                        strerror(errno));
             return -1;
         }
@@ -55,8 +58,32 @@ log_deinit(void)
     if (l->fd < 0 || l->fd == STDERR_FILENO) {
         return;
     }
+    if (l->realname) {
+    	nc_free(l->realname);
+    }
 
     close(l->fd);
+}
+
+void log_init_realname(void) {
+	struct logger *l = &logger;
+	time_t nowtime;
+	struct tm *timeinfo, timeobj;
+	if (l->name == NULL || !strlen(l->name)) {
+		return;
+	}
+
+	nowtime = time(NULL);
+	timeinfo = localtime_r(&nowtime, &timeobj);
+	if (!l->realname) {
+		l->realname = nc_alloc(strlen(l->name) + 32); /* yyyymmddhhmmss */
+	}
+	if (timeinfo && l->realname) {
+		nc_scnprintf(l->realname, strlen(l->name) + 32, "%s.%d%02d%02d%02d%02d%02d", l->name,
+				timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
+				timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+	}
+
 }
 
 void
@@ -66,9 +93,13 @@ log_reopen(void)
 
     if (l->fd != STDERR_FILENO) {
         close(l->fd);
-        l->fd = open(l->name, O_WRONLY | O_APPEND | O_CREAT, 0644);
+        log_init_realname();
+
+
+        l->fd = open(l->realname, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (l->fd < 0) {
-            log_stderr_safe("reopening log file '%s' failed, ignored: %s", l->name,
+
+            log_stderr_safe("reopening log file '%s' failed, ignored: %s", l->realname,
                        strerror(errno));
         }
     }
@@ -128,6 +159,9 @@ log_loggable(int level)
     return 1;
 }
 
+/*
+ * */
+
 void
 _log(const char *file, int line, int panic, const char *fmt, ...)
 {
@@ -136,7 +170,25 @@ _log(const char *file, int line, int panic, const char *fmt, ...)
     char buf[LOG_MAX_LEN];
     va_list args;
     ssize_t n;
+
     struct timeval tv;
+
+    off_t offset;
+
+
+
+    if (l->fd != STDERR_FILENO && l->fd >= 0) {
+    	if (++l->write_count > LOG_N_TRY_REOPEN) {
+    		offset = lseek(l->fd, 0, SEEK_CUR );
+    		if (offset > LOG_MAX_FILESIZE) {
+    			 log_stderr("log_reopen log file '%s' because lseek = %lld > %lld ", l->realname, offset, LOG_MAX_FILESIZE);
+    			log_reopen();
+    		}
+
+    		l->write_count = 0;
+    	}
+    }
+
 
     if (l->fd < 0) {
         return;

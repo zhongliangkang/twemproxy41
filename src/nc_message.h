@@ -29,7 +29,11 @@ typedef enum msg_parse_result {
     MSG_PARSE_OK,                         /* parsing ok */
     MSG_PARSE_ERROR,                      /* parsing error */
     MSG_PARSE_REPAIR,                     /* more to parse -> repair parsed & unparsed data */
+    MSG_PARSE_FRAGMENT,                   /* multi-vector request -> fragment */
     MSG_PARSE_AGAIN,                      /* incomplete -> parse again */
+    MSG_PARSE_AUTH,                       /* auth  -> request for auth */
+    MSG_PARSE_PING,                       /* ping  -> request for ping*/
+    MSG_PARSE_GETSERVER,                  /* get the right backends for special key */
 } msg_parse_result_t;
 
 #define MSG_TYPE_CODEC(ACTION)                                                                      \
@@ -165,6 +169,10 @@ typedef enum msg_parse_result {
     ACTION( RSP_REDIS_INTEGER )                                                                     \
     ACTION( RSP_REDIS_BULK )                                                                        \
     ACTION( RSP_REDIS_MULTIBULK )                                                                   \
+    ACTION( REQ_REDIS_AUTH )                                                                        \
+    ACTION( REQ_REDIS_GETSERVER )                                                                   \
+    ACTION( REQ_REDIS_MGET_SINGLE_REDIS )                                                           \
+    ACTION( REQ_REDIS_REDIRECT )                                                                    \
     ACTION( SENTINEL )                                                                              \
 
 
@@ -173,6 +181,23 @@ typedef enum msg_type {
     MSG_TYPE_CODEC(DEFINE_ACTION)
 } msg_type_t;
 #undef DEFINE_ACTION
+
+
+/*
+ *
+ *
+
+ ACTION( REQ_REDIS_GETSERVER )                                                                   \
+    ACTION( REQ_REDIS_MGET_SINGLE_REDIS )                                                           \                                                              \
+    ACTION( REQ_REDIS_REDIRECT )                                                                    \
+
+    MSG_REQ_REDIS_AUTH,                    add auth method support
+    MSG_REQ_REDIS_GETSERVER,                add getserver method support for twemproxy
+    MSG_REQ_REDIS_MGET_SINGLE_REDIS,        add support single redis for mget to fast the query
+    MSG_REQ_REDIS_PING,                      add ping support
+    MSG_REQ_REDIS_REDIRECT,                 redirect msg
+    MSG_SENTINEL
+*/
 
 struct keypos {
     uint8_t             *start;           /* key start pos */
@@ -210,6 +235,12 @@ struct msg {
 
     struct array         *keys;           /* array of keypos, for req */
 
+    uint8_t              *key_start;      /* key start */
+    uint8_t              *key_end;        /* key end */
+
+    uint8_t              *v_start;        /* value start in mset sub msg */
+    uint32_t             v_len;          /* value len   in mset sub msg */
+
     uint32_t             vlen;            /* value length (memcache) */
     uint8_t              *end;            /* end marker (memcache) */
 
@@ -235,8 +266,18 @@ struct msg {
     unsigned             noforward:1;     /* not need forward (example: ping) */
     unsigned             done:1;          /* done? */
     unsigned             fdone:1;         /* all fragments are done? */
+
+    unsigned             first_fragment:1;/* first fragment? */
+    unsigned             last_fragment:1; /* last fragment? */
+
     unsigned             swallow:1;       /* swallow response? */
     unsigned             redis:1;         /* redis? */
+
+    unsigned             transfer_status:2; /* request: the key is in trans?*/
+    unsigned             redirect:4;        /* request: redirect? */
+    unsigned             redirect_type:1;   /* request: redirect_type 0:key redirect, 1:bucket redirect */
+
+
 };
 
 TAILQ_HEAD(msg_tqh, msg);
@@ -283,5 +324,7 @@ struct msg *rsp_recv_next(struct context *ctx, struct conn *conn, bool alloc);
 void rsp_recv_done(struct context *ctx, struct conn *conn, struct msg *msg, struct msg *nmsg);
 struct msg *rsp_send_next(struct context *ctx, struct conn *conn);
 void rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg);
+
+
 
 #endif

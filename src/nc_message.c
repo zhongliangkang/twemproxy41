@@ -71,14 +71,14 @@
  * synonymously with write or OUT event. Similarly recv is used synonymously
  * with read or IN event
  *
- *             Client+             Proxy           Server+
+ *             Client+             Proxy           Server+ (nc_response.c)
  *                              (nutcracker)
  *                                   .
- *       msg_recv {read event}       .       msg_recv {read event}
+ *       msg_recv {read event}       .       msg_recv {read event}  msg_get
  *         +                         .                         +
  *         |                         .                         |
  *         \                         .                         /
- *         req_recv_next             .             rsp_recv_next
+ *                       .             rsp_recv_next
  *           +                       .                       +
  *           |                       .                       |       Rsp
  *           req_recv_done           .           rsp_recv_done      <===
@@ -107,6 +107,7 @@
  * of a single request response, where (a) and (b) handle request from
  * client, while (c) and (d) handle the corresponding response from the
  * server.
+ *
  */
 
 static uint64_t msg_id;          /* message id counter */
@@ -190,6 +191,8 @@ msg_tmo_delete(struct msg *msg)
     log_debug(LOG_VERB, "delete msg %"PRIu64" from tmo rbt", msg->id);
 }
 
+
+/* */
 static struct msg *
 _msg_get(void)
 {
@@ -257,6 +260,10 @@ done:
     msg->rlen = 0;
     msg->integer = 0;
 
+    //for redirect mset msg
+    msg->v_len = 0;
+    msg->v_start = NULL;
+
     msg->err = 0;
     msg->error = 0;
     msg->ferror = 0;
@@ -268,6 +275,9 @@ done:
     msg->fdone = 0;
     msg->swallow = 0;
     msg->redis = 0;
+
+    msg->redirect = 0;
+    msg->transfer_status = 0;
 
     return msg;
 }
@@ -448,14 +458,64 @@ msg_empty(struct msg *msg)
     return msg->mlen == 0 ? true : false;
 }
 
+
 uint32_t
 msg_backend_idx(struct msg *msg, uint8_t *key, uint32_t keylen)
 {
     struct conn *conn = msg->owner;
     struct server_pool *pool = conn->owner;
 
-    return server_pool_idx(pool, key, keylen);
+    return server_pool_idx(pool, key, keylen, msg->redirect);
 }
+
+
+/* split the response, copy from msg_parsed*/
+static rstatus_t redirect_splitrsp(struct context *ctx, struct conn *conn, struct msg *msg) {
+	struct msg *nmsg;
+	struct mbuf *mbuf, *nbuf;
+
+	ASSERT(!conn->client && !conn->proxy && !msg->request );
+
+	mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
+	if (msg->pos == mbuf->last) {
+		conn->rmsg = NULL;
+		rsp_put(msg);
+		return NC_OK;
+	}
+
+	/*
+	 * Input mbuf has un-parsed data. Split mbuf of the current message msg
+	 * into (mbuf, nbuf), where mbuf is the portion of the message that has
+	 * been parsed and nbuf is the portion of the message that is un-parsed.
+	 * Parse nbuf as a new message nmsg in the next iteration.
+	 */
+
+	nbuf = mbuf_split(&msg->mhdr, msg->pos, NULL, NULL);
+	if (nbuf == NULL) {
+		return NC_ENOMEM;
+	}
+
+	nmsg = msg_get(msg->owner, msg->request, conn->redis);
+	if (nmsg == NULL) {
+		mbuf_put(nbuf);
+		return NC_ENOMEM;
+	}
+	mbuf_insert(&nmsg->mhdr, nbuf);
+	nmsg->pos = nbuf->pos;
+
+	/* update length of current (msg) and new message (nmsg) */
+	nmsg->mlen = mbuf_length(nbuf);
+	msg->mlen -= nmsg->mlen;
+
+	conn->rmsg = nmsg;
+	//conn->recv_done(ctx, conn, msg, nmsg);
+
+	log_debug(LOG_VVERB, "redirect: split a newmsg:%p from %p, length:%d\n", nmsg,msg, nmsg->mlen);
+	msg_put(msg);
+
+	return NC_OK;
+}
+
 
 struct mbuf *
 msg_ensure_mbuf(struct msg *msg, size_t len)
@@ -557,8 +617,29 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
 {
     struct msg *nmsg;
     struct mbuf *mbuf, *nbuf;
+    char auth_ret[1024];
 
     mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
+
+
+
+	if (! conn->authed) {
+		if (conn->client) {
+			if (msg->type != MSG_REQ_REDIS_AUTH) {
+				//return a error msg
+				msg->error = 1;
+				msg->err = EAUTH;
+				msg->noforward = 1;
+			}
+		} else if (! conn->client && ! conn->proxy) { //is server conn
+			nc_snprintf(auth_ret, msg->pos - mbuf->pos, "%s", mbuf->pos);
+			loga("auth to server: %s ret: %s.", ((struct server * )msg->owner->owner)->name.data, auth_ret);
+			if (strcmp(auth_ret, "+OK")) {
+				conn->authed = 1;
+			}
+		}
+	}
+
     if (msg->pos == mbuf->last) {
         /* no more data to parse */
         conn->recv_done(ctx, conn, msg, NULL);
@@ -571,6 +652,8 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
      * been parsed and nbuf is the portion of the message that is un-parsed.
      * Parse nbuf as a new message nmsg in the next iteration.
      */
+
+
     nbuf = mbuf_split(&msg->mhdr, msg->pos, NULL, NULL);
     if (nbuf == NULL) {
         return NC_ENOMEM;
@@ -608,10 +691,200 @@ msg_repair(struct context *ctx, struct conn *conn, struct msg *msg)
     return NC_OK;
 }
 
+static unsigned int intlen  (unsigned int x) {
+	int i;
+	if(!x) return 1;
+	for(i=0;x;x/=10,i++);
+	return (unsigned int) i;
+
+}
+
+static bool compare_buf_string (struct msg *msg, struct string * str) {
+	struct mbuf * buf;
+	uint8_t *p, *p1;
+	size_t  clen;
+	buf = STAILQ_FIRST(&msg->mhdr);
+
+	clen = 0;
+	p = buf->pos;
+	p1 = str->data;
+
+	while (*p == *p1 && clen < str->len ) {
+		clen ++;
+		p1++;
+		p ++;
+		if (p > buf->last) {
+			buf = STAILQ_NEXT(buf, next);
+			if (! buf) {
+				break;
+			}
+
+			p = buf->start;
+		}
+	}
+
+	if (clen == str->len) {
+		return true;
+	}
+	return false;
+}
+
+/*
+ * msg:old server's reponse
+ * pmsg: response's peer msg, request msg
+ *
+ */
+
+static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *msg) {
+	struct msg* pmsg;
+	struct conn *c_conn;
+	struct mbuf *nbuf, *mbuf, *buf;
+
+	unsigned int redirect_msg_type;
+	struct string redirect_msg_1 = string("-ERR KEY_TRANSFERING"); //-KEY_TRANSFERING
+    struct string redirect_msg_2 = string("-ERR BUCKET_TRANS_DONE"); //-BUCKET_TRANS_DONE
+
+    /*
+    struct string nil_msg = string("$-1\r\n"); //-BUCKET_TRANS_DONE
+
+    if (compare_buf_string(msg, &nil_msg)) {
+        log_error ("[WARN] get a nil message from s %d .", conn->sd);
+    }
+    */
+
+	// msg : which  server->rsp && peer request's status == 2 && PARSED_OK && noforward == 0
+	if (! (!conn->client && !conn->proxy && !msg->request && msg->result == MSG_PARSE_OK
+			&& msg->type == MSG_RSP_REDIS_ERROR && msg->noforward == 0)
+		){
+
+		return false;
+	}
+
+
+
+
+	//check peer msg
+	buf = STAILQ_FIRST(&msg->mhdr);
+
+	pmsg = TAILQ_FIRST(&conn->omsg_q);
+	if (!pmsg) {
+		//stray msg
+	   log_error("response msg content is '%.*s', a  empty peer msg found %p\n",  (size_t ) (buf->last - buf->pos), buf->pos);
+	   return false;
+	}
+
+
+	if (! pmsg->transfer_status == MSG_STATUS_TRANSING) {
+		return false;
+	}
+
+
+
+	if (compare_buf_string(msg, &redirect_msg_2)) {
+		redirect_msg_type = REDIRECT_TYPE_BUCKET_TRANS_DONE;
+		log_debug(LOG_VVERB, "redirect msg %p match type2 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_2.len, buf->pos,
+				(size_t ) (buf->last - buf->pos), msg->owner->err);
+	} else if (compare_buf_string(msg, &redirect_msg_1)) {
+		redirect_msg_type = REDIRECT_TYPE_KEY_TRANSFERING;
+
+		log_debug(LOG_VVERB, "redirect msg %p match type1 %.*s, length: %d msg->owner->err:%d", msg, redirect_msg_1.len, buf->pos,
+				(size_t ) (buf->last - buf->pos), msg->owner->err);
+
+	} else {
+		//a normal error, no direct
+		log_debug(LOG_VVERB, "a normal msg");
+		return false;
+	}
+
+	if ( pmsg->redirect >= MAX_REDIRECT_TIMES) {
+		pmsg->error = 1;
+		pmsg->err = ETIME;
+		stats_server_incr_by(ctx, conn->owner, redirect_fail, 1);
+		return false;
+	}
+	stats_server_incr_by(ctx, conn->owner, redirect_succ, 1);
+
+
+	ASSERT(pmsg != NULL && pmsg->peer == NULL);
+	ASSERT(pmsg->request && !pmsg->done);
+
+	/* DROP OLD-SERVER REQUEST*/
+	conn->dequeue_outq(ctx, conn, pmsg);
+
+	log_debug(LOG_VVERB, "redirect msg %p id %"PRIu64"", msg, msg->id);
+	/* pmsg is the request of client, we send it to new server*/
+	pmsg->redirect ++; //do not redirect again
+	pmsg->redirect_type = redirect_msg_type;
+	pmsg->error = 0;    //may be no use
+
+    // we record a warning when the redirect msg more than once
+    if( pmsg->redirect > 1){
+        log_error("[WARN] redirect msg times: %d .\n",pmsg->redirect);
+    }
+
+	mbuf = STAILQ_FIRST(&pmsg->mhdr);
+
+	// if not a fragment msg, just reset to the start
+	if (pmsg->frag_id == 0) {
+		mbuf = STAILQ_FIRST(&pmsg->mhdr);
+		mbuf->pos = mbuf->start;
+	}
+
+	/* if fragment , the first buf reset to start, and next reset to start + 2 (*2) or 3 (*10) or intlen(pmsg->narg)
+	 pmsg->buf: mget/del
+	 pmsg->buf->next : key
+	 or
+	 pmsg->buf: mset
+	 pmsg->buf->next : key
+	 pmsg->buf->next : value
+
+	 */
+
+	else {
+		mbuf = STAILQ_FIRST(&pmsg->mhdr);
+		mbuf->pos = mbuf->start;
+
+		//MSG_REQ_REDIS_MGET MSG_REQ_REDIS_DEL
+		nbuf = STAILQ_NEXT(mbuf, next);
+		if (nbuf != NULL) {
+			log_debug(LOG_VVERB, "nbuf %p ", mbuf);
+			nbuf->pos = nbuf->start;
+		}
+
+		//MSG_REQ_REDIS_MSET
+		if (pmsg->type == MSG_REQ_REDIS_MSET) {
+			nbuf = STAILQ_NEXT(nbuf, next);
+			if (nbuf != NULL) {
+				log_debug(LOG_VVERB, "nbuf %p ", mbuf);
+				//v_start v_len is init a nc_redis.c redis_copy_bulk
+				if (pmsg->v_len > 0) {
+					nbuf->pos = pmsg->v_start;
+					nbuf->last = nbuf->pos + pmsg->v_len;
+				} else {
+					nbuf->pos = nbuf->start;
+				}
+			}
+		}
+
+	}
+
+
+
+	c_conn = pmsg->owner;
+
+	//try to parse next response in msg
+	redirect_splitrsp(ctx, conn, msg);
+
+	/* SEND REQUEST TO NEW SERVER*/
+	req_redirect(ctx, c_conn, pmsg); //wrapper of req_forward
+	return true;
+}
+
 static rstatus_t
 msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
 {
     rstatus_t status;
+
 
     if (msg_empty(msg)) {
         /* no data to parse */
@@ -620,6 +893,22 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
     }
 
     msg->parser(msg);
+
+
+    //if client's request and redirect
+    if (conn->client && msg->request && msg->redirect == 1 ) {
+    	log_error("NOREACH: client request which redirect mode");
+     	status = NC_OK;
+     	return conn->err != 0 ? NC_ERROR : status;
+    }
+
+
+    //REDIRECT: CLIENT->PROXY->OLDSERERR->PROXY-(4)>NEWSERVER->PROXY->CLIENT
+    if (true == redirect_check(ctx,conn,msg)) {
+    	return NC_OK;
+    }
+    // else  //REDIRECT: CLIENT->PROXY->OLDSERERR->PROXY->CLIENT
+
 
     switch (msg->result) {
     case MSG_PARSE_OK:
@@ -652,6 +941,15 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     size_t msize;
     ssize_t n;
 
+
+
+    /* flag is no used, wait sky to confirm
+    int flag = 0;
+    if(msg->result == MSG_PARSE_AUTH && conn->client == 0){
+        flag = 1;
+    }
+    */
+
     mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
     if (mbuf == NULL || mbuf_full(mbuf)) {
         mbuf = mbuf_get();
@@ -676,6 +974,7 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     ASSERT((mbuf->last + n) <= mbuf->end);
     mbuf->last += n;
     msg->mlen += (uint32_t)n;
+
 
     for (;;) {
         status = msg_parse(ctx, conn, msg);
@@ -760,6 +1059,10 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
             if (mbuf_empty(mbuf)) {
                 continue;
             }
+
+            log_debug(LOG_VERB, "concat mbuf %p of msg:%p", mbuf, msg);
+
+
 
             mlen = mbuf_length(mbuf);
             if ((nsend + mlen) > limit) {
@@ -853,7 +1156,13 @@ msg_send(struct context *ctx, struct conn *conn)
     rstatus_t status;
     struct msg *msg;
 
+    if (! conn->send_active) {
+    	log_error ("fetal error: conn %p 'proxy:%d client:%d rmsg:%p smsg:%p sd:%d' send_bytes:%d, recv_bytes:%d",
+    			conn, conn->proxy, conn->client, conn->rmsg, conn->smsg, conn->sd, conn->send_bytes, conn->recv_bytes);
+    }
+
     ASSERT(conn->send_active);
+
 
     conn->send_ready = 1;
     do {

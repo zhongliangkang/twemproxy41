@@ -209,6 +209,7 @@ rsp_forward_stats(struct context *ctx, struct server *server, struct msg *msg)
     stats_server_incr_by(ctx, server, response_bytes, msg->mlen);
 }
 
+
 static void
 rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
 {
@@ -216,13 +217,15 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     struct msg *pmsg;
     struct conn *c_conn;
 
-    ASSERT(!s_conn->client && !s_conn->proxy);
+
+   // ASSERT(!s_conn->client && !s_conn->proxy);
 
     /* response from server implies that server is ok and heartbeating */
     server_ok(ctx, s_conn);
 
     /* dequeue peer message (request) from server */
     pmsg = TAILQ_FIRST(&s_conn->omsg_q);
+
     ASSERT(pmsg != NULL && pmsg->peer == NULL);
     ASSERT(pmsg->request && !pmsg->done);
 
@@ -236,10 +239,19 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     msg->pre_coalesce(msg);
 
     c_conn = pmsg->owner;
+
+
+    if(c_conn == NULL){
+        msg_put(pmsg); //send msg to free queue
+        return;
+    }
+
+
+
     ASSERT(c_conn->client && !c_conn->proxy);
 
     if (req_done(c_conn, TAILQ_FIRST(&c_conn->omsg_q))) {
-        status = event_add_out(ctx->evb, c_conn);
+        status = event_add_out(ctx->evb, c_conn);  /* c_conn */
         if (status != NC_OK) {
             c_conn->err = errno;
         }
@@ -261,6 +273,7 @@ rsp_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
     /* enqueue next message (response), if any */
     conn->rmsg = nmsg;
 
+    /* do some check*/
     if (rsp_filter(ctx, conn, msg)) {
         return;
     }

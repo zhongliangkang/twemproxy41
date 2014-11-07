@@ -61,10 +61,45 @@
 
 typedef uint32_t (*hash_t)(const char *, size_t);
 
+
+#define MODHASH_TOTAL_KEY  420000      /* total hash keys: 42w */
+
+#define MAX_REDIRECT_TIMES 10
+
+#define MSG_STATUS_NOTRANS  1   /*   */
+#define MSG_STATUS_TRANSING 2   /*   */
+#define MSG_STATUS_TRANSED  3   /*   */
+
+#define SERVER_STATUS_NOTRANS  1   /* return old */
+#define SERVER_STATUS_TRANSING 2   /* return old, try to redirect to new */
+#define SERVER_STATUS_TRANSED  3   /* return new */
+
+#define CONTINUUM_STATUS_NOTRANS  1   /* return old */
+#define CONTINUUM_STATUS_TRANSING 2   /* return old, try to redirect to new */
+#define CONTINUUM_STATUS_TRANSED  3   /* return new */
+
+#define REDIRECT_TYPE_KEY_TRANSFERING  0   /* return old */
+#define REDIRECT_TYPE_BUCKET_TRANS_DONE 1   /* return old, try to redirect to new */
+
+
+
 struct continuum {
     uint32_t index;  /* server index */
     uint32_t value;  /* hash value */
+    uint32_t newindex;  /* new server index, default -1 */
+    unsigned  status:2; /* transfer_status: 0:old; 1,old,new; 2:new*/
+
 };
+
+
+
+
+struct modify_info{
+    struct sockinfo *ski;
+    char            *new_name;
+    char            *new_pname;
+};
+
 
 struct server {
     uint32_t           idx;           /* server index */
@@ -83,6 +118,19 @@ struct server {
 
     int64_t            next_retry;    /* next retry time in usec */
     uint32_t           failure_count; /* # consecutive failures */
+
+
+    struct string      app;     /* app info */
+    int                status;  /* instance status */
+    int                seg_start; /* start of segment */
+    int                seg_end  ; /* start of segment */
+    bool               sock_need_free; /* if need to free the sock addr */
+    struct sockinfo    *sock_info;    /* pointer to the sock info*/
+    struct modify_info mif;           /* struct for store modify information when modify the config */
+    bool               reload_svr;    /* flag to check if need to reload svr info from modify_info above */
+    pthread_mutex_t    mutex;         /* mutex for modify config infomation */
+
+
 };
 
 struct server_pool {
@@ -94,6 +142,11 @@ struct server_pool {
     struct conn_tqh    c_conn_q;             /* client connection q */
 
     struct array       server;               /* server[] */
+
+    int                is_modified;          /* if set to 1, the server info is reallocated */
+
+    uint32_t           ntrans_continuum  ;  /* # continuum points in transfer status*/
+
     uint32_t           ncontinuum;           /* # continuum points */
     uint32_t           nserver_continuum;    /* # servers - live and dead on continuum (const) */
     struct continuum   *continuum;           /* continuum */
@@ -116,9 +169,23 @@ struct server_pool {
     uint32_t           server_connections;   /* maximum # server connection */
     int64_t            server_retry_timeout; /* server retry timeout in usec */
     uint32_t           server_failure_limit; /* server failure limit */
+    pthread_mutex_t    mutex;                /* mutex for modhash_update */
+    uint32_t           add_cmd_count;            /* add command ocunt */
+
+    struct string      password;             /* pool password */
+    struct string      redis_password;       /* pool password for access redis backends */
+
     unsigned           auto_eject_hosts:1;   /* auto_eject_hosts? */
     unsigned           preconnect:1;         /* preconnect? */
     unsigned           redis:1;              /* redis? */
+
+
+    unsigned           b_pass:1;             /* if access twemproxy need password? */
+    unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
+    unsigned           status:2;             /* 0:nouse, 1:notrans ,2:transing, 3:trans done */
+
+
+
 };
 
 void server_ref(struct conn *conn, void *owner);
@@ -133,12 +200,59 @@ void server_close(struct context *ctx, struct conn *conn);
 void server_connected(struct context *ctx, struct conn *conn);
 void server_ok(struct context *ctx, struct conn *conn);
 
-uint32_t server_pool_idx(struct server_pool *pool, uint8_t *key, uint32_t keylen);
-struct conn *server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key, uint32_t keylen);
+
+uint32_t server_pool_idx(struct server_pool *pool, uint8_t *key, uint32_t keylen, int redirect);
+struct conn *server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key, uint32_t keylen, struct msg *msg);
+
 rstatus_t server_pool_run(struct server_pool *pool);
 rstatus_t server_pool_preconnect(struct context *ctx);
 void server_pool_disconnect(struct context *ctx);
 rstatus_t server_pool_init(struct array *server_pool, struct array *conf_pool, struct context *ctx);
 void server_pool_deinit(struct array *server_pool);
+
+struct server * server_pool_server(struct server_pool *pool, uint8_t *key, uint32_t keylen, int redirect);
+
+
+
+struct sp_config{
+    struct string name;
+    int   (*get)(struct server_pool *sp, struct sp_config *spc, char *data);
+    int    offset;
+};
+
+
+int sp_get_server( struct server_pool *sp, struct sp_config *spc, char * result);
+int sp_get_transinfo( struct server_pool *sp, struct sp_config *spc, char * result);
+
+int sp_get_by_item(char *sp_name, char *sp_item ,char *result, void *sp);
+#define null_config { null_string, NULL, 0 }
+
+
+int server_pool_get_config_by_string(struct server_pool *sp, struct string *item, char * result);
+int server_pool_getkey_by_keyid(void *sp_p, char *sp_name, char* key, char * result);
+
+/* send the auth package to redis server */
+rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn);
+
+/* a wrapper of req_forward */
+void req_redirect (struct context *ctx, struct conn *c_conn, struct msg *msg);
+
+/* 
+ * parameters:
+ * sp: server_pool array
+ * sp_name: server pool name
+ * inst: redis instance in format of IP:PORT
+ * app : app  name
+ * seqs: hash sequence of START-END
+ * status: 0 or 1
+ * */
+
+rstatus_t nc_stats_addCommand (void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
+rstatus_t nc_stats_addDoneCommand (void *sp, char *sp_name, char *inst, char* app, char *seqs, char *status,char *result);
+rstatus_t nc_stats_addCommand_parse(struct server_pool *sp, char * inst, char * app, char * seqs, char* status,struct server *tmpsvr, char* result);
+rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char* result);
+rstatus_t server_check_hash_keys( struct server_pool *sp, struct server *newsrv);
+rstatus_t nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
+rstatus_t nc_is_valid_instance(char *inst, char *ip, int * port);
 
 #endif

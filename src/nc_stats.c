@@ -196,10 +196,11 @@ stats_server_map(struct array *stats_server, struct array *server)
     nserver = array_n(server);
     ASSERT(nserver != 0);
 
-    status = array_init(stats_server, nserver, sizeof(struct stats_server));
+    status = array_init(stats_server, NC_MAX_NSERVER, sizeof(struct stats_server));
     if (status != NC_OK) {
         return status;
     }
+    log_debug(LOG_VVVERB, "pre alloc %d stats servers, size:%d bytes", NC_MAX_NSERVER, NC_MAX_NSERVER * sizeof(struct stats_server));
 
     for (i = 0; i < nserver; i++) {
         struct server *s = array_get(server, i);
@@ -214,6 +215,65 @@ stats_server_map(struct array *stats_server, struct array *server)
     log_debug(LOG_VVVERB, "map %"PRIu32" stats servers", nserver);
 
     return NC_OK;
+}
+
+rstatus_t stats_pool_add_server(struct server_pool *pool, uint32_t newsvr_idx) {
+	rstatus_t status;
+	struct stats_pool *stp;
+
+	stp = array_get(&pool->ctx->stats->current, pool->idx);
+	status = stats_server_add_one(&stp->server, &pool->server, newsvr_idx);
+	if (NC_OK != status) {
+		return status;
+	}
+
+	stp = array_get(&pool->ctx->stats->shadow, pool->idx);
+	status = stats_server_add_one(&stp->server, &pool->server, newsvr_idx);
+	if (NC_OK != status) {
+		//FIXME: deinit current
+		return status;
+	}
+
+	stp = array_get(&pool->ctx->stats->sum, pool->idx);
+	status = stats_server_add_one(&stp->server, &pool->server, newsvr_idx);
+	if (NC_OK != status) {
+		//FIXME: deinit current\shadow
+		return status;
+	}
+
+	stats_destroy_buf(pool->ctx->stats);
+	stats_create_buf(pool->ctx->stats);
+
+
+	return NC_OK;
+}
+/*
+ * add a new server in alloced array. idx must < NC_MAX_SERVER to avoid realloc
+ *  status = stats_pool_map(&st->current, server_pool);
+ * */
+rstatus_t stats_server_add_one(struct array *stats_server, struct array *server, uint32_t newsvr_idx) {
+	rstatus_t status;
+	ASSERT(stats_server != NULL); ASSERT(server != NULL);
+
+	struct server *s = array_get(server, newsvr_idx);
+	if (s->idx != newsvr_idx) {
+		return NC_ERROR;
+	}
+
+	if (newsvr_idx >= stats_server->nalloc) {
+		return NC_ERROR;
+	}
+
+	struct stats_server *sts = array_push(stats_server);
+
+	status = stats_server_init(sts, s);
+	if (status != NC_OK) {
+		return status;
+	}
+
+//   log_debug(LOG_VVVERB, "%s add map %"PRIu32" stats servers", newsvr_idx);
+
+	return NC_OK;
 }
 
 static void
@@ -326,7 +386,7 @@ stats_pool_unmap(struct array *stats_pool)
     log_debug(LOG_VVVERB, "unmap %"PRIu32" stats pool", npool);
 }
 
-static rstatus_t
+rstatus_t
 stats_create_buf(struct stats *st)
 {
     uint32_t int64_max_digits = 20; /* INT64_MAX = 9223372036854775807 */
@@ -421,7 +481,7 @@ stats_create_buf(struct stats *st)
     return NC_OK;
 }
 
-static void
+void
 stats_destroy_buf(struct stats *st)
 {
     if (st->buf.size != 0) {
@@ -469,6 +529,7 @@ stats_add_num(struct stats *st, struct string *key, int64_t val)
     n = nc_snprintf(pos, room, "\"%.*s\":%"PRId64", ", key->len, key->data,
                     val);
     if (n < 0 || n >= (int)room) {
+    	log_error ("add error %d %s %d ", n, pos, room);
         return NC_ERROR;
     }
 
@@ -709,6 +770,7 @@ stats_make_rsp(struct stats *st)
     for (i = 0; i < array_n(&st->sum); i++) {
         struct stats_pool *stp = array_get(&st->sum, i);
         uint32_t j;
+        uint32_t  n;
 
         status = stats_begin_nesting(st, &stp->name);
         if (status != NC_OK) {
@@ -730,8 +792,10 @@ stats_make_rsp(struct stats *st)
             }
 
             /* copy server metric from sum(c) to buffer */
+
             status = stats_copy_metric(st, &sts->metric);
             if (status != NC_OK) {
+            	//log_error ("stats_copy_metric failed i=%d j=%d addr:%s", i,j, st->addr.data);
                 return status;
             }
 
@@ -755,36 +819,203 @@ stats_make_rsp(struct stats *st)
     return NC_OK;
 }
 
-static rstatus_t
-stats_send_rsp(struct stats *st)
-{
-    rstatus_t status;
-    ssize_t n;
-    int sd;
 
-    status = stats_make_rsp(st);
-    if (status != NC_OK) {
-        return status;
-    }
 
-    sd = accept(st->sd, NULL, NULL);
-    if (sd < 0) {
-        log_error("accept on m %d failed: %s", st->sd, strerror(errno));
-        return NC_ERROR;
-    }
 
-    log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+static rstatus_t stats_send_rsp(struct stats *st) {
+	rstatus_t status;
+	ssize_t n;
+	int sd, rt;
+	char recv_command[MAX_COMMAND_LENGTH * MAX_COMMAND_FIELD];
+	char *cmd_p[MAX_COMMAND_FIELD];
+	char *p, *key_point;
+	int n_field;
+	char *result = NULL;
+	char *output = NULL;
 
-    n = nc_sendn(sd, st->buf.data, st->buf.len);
-    if (n < 0) {
-        log_error("send stats on sd %d failed: %s", sd, strerror(errno));
-        close(sd);
-        return NC_ERROR;
-    }
+	status = stats_make_rsp(st);
 
-    close(sd);
+	if (status != NC_OK) {
+		log_error("stats_make_rsp failed");
+		//return status;
+	}
+	memset(recv_command, 0, sizeof(recv_command));
+	sd = accept(st->sd, NULL, NULL);
+	if (sd < 0) {
+		log_error("accept on m %d failed: %s", st->sd, strerror(errno));
+		return NC_ERROR;
+	}
 
-    return NC_OK;
+
+	//memset(recv_command, 0, sizeof(recv_command));
+	n = recv(sd, recv_command, 80, 0);
+	if (n >= 2 && recv_command[n - 2] == CR && recv_command[n - 1] == LF) {
+		recv_command[n - 2] = recv_command[n - 1] = 0;
+	} else if (n >= 1 && recv_command[n - 1] == LF) {
+		recv_command[n - 1] = 0;
+	}
+
+
+
+
+	/* get rid of head,tail space */
+	nc_trim(recv_command);
+	log_debug(LOG_VERB,"receive length:%d, command:'%s' %d %d %d",n,recv_command,strlen(recv_command),recv_command[n-2],recv_command[n-1]);
+
+	// null command
+	if (strlen(recv_command) < 1) {
+		char str_e[] = "ERR:empty command";
+		n = nc_sendn(sd, str_e, strlen(str_e));
+		goto end;
+	}
+
+	// cut the command into many fields
+	p = recv_command;
+	n_field = 0;
+	while (p) {
+		while ((key_point = strsep(&p, " \t"))) {
+			if (*key_point == 0)
+				continue;
+			else
+				break;
+		}
+
+		cmd_p[n_field++] = key_point;
+	}
+
+	// too many fields
+	if (n_field >= MAX_COMMAND_FIELD) {
+		char str_e[] = "ERR:bad command: too many field in command\n";
+		n = nc_sendn(sd, str_e, strlen(str_e));
+		goto end;
+	}
+
+
+
+	/* get the stats info of twemproxy */
+	if (!strcmp(cmd_p[0], "stats")) {
+		log_debug(LOG_VERB, "send stats on sd %d %d bytes", sd, st->buf.len);
+		n = nc_sendn(sd, st->buf.data, st->buf.len);
+	    if (n < 0) {
+	        log_error("send stats on sd %d failed: %s", sd, strerror(errno));
+	        close(sd);
+	        return NC_ERROR;
+	    }
+		goto end;
+	}
+
+	result = nc_alloc(STATS_RESULT_BUFLEN + 1);
+	output = nc_alloc(STATS_RESULT_BUFLEN + 1);
+
+	if (!result || !output) {
+		char str_e[] = "ERR:malloc failed\n";
+		n = nc_sendn(sd, str_e, strlen(str_e));
+		goto end;
+	}
+
+	memset(result, '0', STATS_RESULT_BUFLEN + 1);
+	memset(output, '0', STATS_RESULT_BUFLEN + 1);
+
+	/*
+	 * get spname servers
+	 * 	return the server list
+	 * get spname listen
+	 * 	return the value of listen
+	 * */
+	if (!strcmp(cmd_p[0], "get") && n_field == 3) { /* get config */
+		if (!strcmp(cmd_p[2], "servers")) {
+			rt = sp_get_by_item(cmd_p[1], "server", result, st->p_sp);
+		} else if (!strcmp(cmd_p[2], "transinfo")) {
+			rt = sp_get_by_item(cmd_p[1], "transinfo", result, st->p_sp);
+		} else {
+			rt = conf_get_by_item((uint8_t *) cmd_p[1], (uint8_t *) cmd_p[2], result, st->p_cf);
+		}
+		if (rt != NC_OK) {
+			log_error("err ret:%d . msg: %s\n", rt, result);
+		}
+		n = nc_sendn(sd, result, strlen(result));
+
+	}
+	/*
+	 * add spname ip:port app segS-segE status
+	 *
+	 */
+
+	else if (!strcmp(cmd_p[0], "add") ) {
+		if (n_field != 5) {
+			snprintf(output, STATS_RESULT_BUFLEN, "ERR: add command, bad argument\n");
+		} else {
+			/*                       echo " 0 add  1 alpha 127.0.0.1:30002 pvz1 21-30  2" |nc  127.0.0.1 22222 */
+			/*  (void *sp, char *sp_name, char *inst, char* app, char *segs, char *status, char *result) */
+			rt = nc_stats_addCommand(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], "2", result);
+			if (NC_OK == rt) {
+				snprintf(output, STATS_RESULT_BUFLEN, "OK\n");
+			} else {
+				snprintf(output, STATS_RESULT_BUFLEN, "ERR: %s\n", result);
+			}
+		}
+
+		n = nc_sendn(sd, output, strlen(output));
+
+	}
+	/*
+	 * adddone, set status 2 to 1
+	 * */
+	else if (!strcmp(cmd_p[0], "adddone")) {
+		if (n_field != 5) {
+			snprintf(output, STATS_RESULT_BUFLEN, "ERR: adddone command, bad argument\n");
+		} else {
+			rt = nc_stats_addDoneCommand(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], cmd_p[4], "2", result);
+			if (NC_OK == rt) {
+				snprintf(output, STATS_RESULT_BUFLEN, "OK\n");
+			} else {
+				snprintf(output, STATS_RESULT_BUFLEN, "ERR: %s\n", result);
+			}
+		}
+
+		n = nc_sendn(sd, output, strlen(output));
+	}
+
+	/*
+	 * change spname ipport new_ipport
+	 */
+
+	else if (!strcmp(cmd_p[0], "change") && n_field == 4) { /* change status */
+		log_error ("change %s %s %s", cmd_p[1], cmd_p[2], cmd_p[3]);
+		rt = nc_server_change_instance(st->p_sp, cmd_p[1], cmd_p[2], cmd_p[3], result);
+
+		if (rt != NC_OK) {
+			log_error("nc_server_change_instance failed:%d %s\n", rt, result);
+		}
+
+		n = nc_sendn(sd, result, strlen(result));
+
+	} else if (!strcmp(cmd_p[0], "delete")) { /* delete server */
+
+	} else if (!strcmp(cmd_p[0], "getkey") && n_field == 3) { /* get hashkey  backend's info */
+		rt = server_pool_getkey_by_keyid(st->p_sp, cmd_p[1], cmd_p[2], result);
+		log_error("receive stats command: getkey %s %s", cmd_p[1], cmd_p[2]);
+		n = nc_sendn(sd, result, strlen(result));
+	} else {
+		char str_e[] = "unkown command.\n";
+		log_debug(LOG_VERB,"%s",str_e);
+		n = nc_sendn(sd, str_e, strlen(str_e));
+	}
+
+
+end:
+
+	if (result) nc_free(result);
+	if (output) nc_free(output);
+
+	if (n < 0) {
+		log_error("send stats on sd %d failed: %s", sd, strerror(errno));
+		close(sd);
+		return NC_ERROR;
+	}
+
+	close(sd);
+	return NC_OK;
 }
 
 static void

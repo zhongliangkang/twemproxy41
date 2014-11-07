@@ -25,5 +25,5 @@ printf "%b" "$set_commands" > /tmp/socat.input
 
 # write
 for i in `seq 1 16`; do
-    cat /tmp/socat.input | socat ${socatopt} - TCP:localhost:22123,nodelay,shut-down,nonblock=1 &
+    cat /tmp/socat.input | socat ${socatopt} - TCP:localhost:40000,nodelay,shut-down,nonblock=1 
 done

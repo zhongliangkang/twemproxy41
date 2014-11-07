@@ -54,6 +54,9 @@
 #define CONF_DEFAULT_SERVER_CONNECTIONS      1
 #define CONF_DEFAULT_KETAMA_PORT             11211
 
+#define CONF_MAX_LENGTH                     64 * 1024          /* define 64K  as max config file length*/
+
+
 struct conf_listen {
     struct string   pname;   /* listen: as "name:port" */
     struct string   name;    /* name */
@@ -65,14 +68,27 @@ struct conf_listen {
 struct conf_server {
     struct string   pname;      /* server: as "name:port:weight" */
     struct string   name;       /* name */
+
+    struct string   app;        /* name */
+
     int             port;       /* port */
     int             weight;     /* weight */
     struct sockinfo info;       /* connect socket info */
     unsigned        valid:1;    /* valid? */
+
+    int             status;     /* transfer status: 1:ok, 2:transfer, 0:done  */
+    int             seg_start;  /* bucket seg start */
+    int             seg_end;    /* bucket set end, ranger:[seg_start, seg_end] */
+
+
+
+
 };
 
 struct conf_pool {
     struct string      name;                  /* pool name (root node) */
+    struct string      password;              /* password for twemproxy access */
+    struct string      redis_password;        /* password for access redis backends */
     struct conf_listen listen;                /* listen: */
     hash_type_t        hash;                  /* hash: */
     struct string      hash_tag;              /* hash_tag: */
@@ -88,6 +104,8 @@ struct conf_pool {
     int                server_failure_limit;  /* server_failure_limit: */
     struct array       server;                /* servers: conf_server[] */
     unsigned           valid:1;               /* valid? */
+
+
 };
 
 struct conf {
@@ -106,11 +124,13 @@ struct conf {
     unsigned      sound:1;          /* sound? */
     unsigned      parsed:1;         /* parsed? */
     unsigned      valid:1;          /* valid? */
+
 };
 
 struct command {
     struct string name;
     char          *(*set)(struct conf *cf, struct command *cmd, void *data);
+    rstatus_t     (*get)(struct conf_pool *cf, struct command *cmd, char *data);
     int           offset;
 };
 
@@ -125,10 +145,27 @@ char *conf_set_hash(struct conf *cf, struct command *cmd, void *conf);
 char *conf_set_distribution(struct conf *cf, struct command *cmd, void *conf);
 char *conf_set_hashtag(struct conf *cf, struct command *cmd, void *conf);
 
+rstatus_t conf_get_string(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_listen(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_servers(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_num(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_bool(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_hash(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_distribution(struct conf_pool *cf, struct command *cmd, char *result);
+rstatus_t conf_get_hashtag(struct conf_pool *cf, struct command *cmd, char *result);
+
 rstatus_t conf_server_each_transform(void *elem, void *data);
 rstatus_t conf_pool_each_transform(void *elem, void *data);
 
 struct conf *conf_create(char *filename);
 void conf_destroy(struct conf *cf);
+
+
+/* tencent add  start */
+int conf_get_by_item(uint8_t *sp_name, uint8_t *sp_item ,char *result, void *sp);
+int sp_get_config_by_string( struct conf_pool *sp,struct string *item, char *result);
+rstatus_t  sp_write_conf_file(struct server_pool *sp, uint32_t sp_idx, int svr_idx, char *new_name);
+rstatus_t conf_check_hash_keys(struct conf_pool *p);
+/* tencent add  end  */
 
 #endif

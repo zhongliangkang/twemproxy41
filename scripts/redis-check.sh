@@ -2,6 +2,7 @@
 
 port=6379
 port=22121
+port=30000
 
 debug="-v -d"
 debug="-d"

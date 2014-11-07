@@ -450,6 +450,7 @@ static bool
 req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
 {
     ASSERT(conn->client && !conn->proxy);
+    struct server_pool *sp = NULL;
 
     if (msg_empty(msg)) {
         ASSERT(conn->rmsg == NULL);
@@ -472,6 +473,194 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         req_put(msg);
         return true;
     }
+
+
+    /* getserver command: here access not need authed */
+    /* ping getserver command is response by redis_reply in nc_redis.c now
+    if(msg->result == MSG_PARSE_GETSERVER){
+
+        log_debug(LOG_INFO, "in getserver command");
+        struct msg *resp = msg_get(conn, false, conn->redis);
+        struct mbuf *mbuf;
+        size_t msize;
+        ssize_t n;
+        uint32_t key_len;
+        uint8_t  *key;
+        struct server *server;
+        sp = conn->owner;
+
+
+        msg->peer = resp;
+        resp->peer= msg;
+
+        msg->done = 1;
+        resp->done = 1;
+
+        // set mbuf
+        mbuf = STAILQ_LAST(&resp->mhdr, mbuf, next);
+        if( mbuf == NULL || mbuf_full(mbuf)){
+            mbuf = mbuf_get();
+            if( mbuf == NULL){
+                return NC_ENOMEM;
+            }
+
+            mbuf_insert(&resp->mhdr, mbuf);
+            resp->pos = mbuf->pos;
+        }
+
+        ASSERT(mbuf->end - mbuf->last > 0);
+        msize = mbuf_size(mbuf);
+
+        key_len = (uint32_t) (msg->key_end - msg->key_start);
+        key     = msg->key_start;
+
+        server = server_pool_server(sp, key, key_len, false);
+
+        n = nc_snprintf(mbuf->last,100,"$%d"CRLF"%s"CRLF, server->name.len,server->name.data);
+        ASSERT(mbuf->last + n <= mbuf->end);
+
+        mbuf->last += n;
+        resp->mlen += n;
+
+
+        conn->enqueue_outq(ctx, conn, msg);
+
+        rstatus_t t = event_add_out(ctx->evb, conn);
+        if(t != NC_OK )
+            conn->err = errno;
+
+        return true;
+
+    }
+
+
+
+    if( msg->result == MSG_PARSE_PING ){
+
+        log_debug(LOG_INFO, "in ping command");
+        struct msg *resp = msg_get(conn, false, conn->redis);
+        struct mbuf *mbuf;
+        size_t msize;
+        ssize_t n;
+        sp = conn->owner;
+
+
+        msg->peer = resp;
+        resp->peer= msg;
+
+        msg->done = 1;
+        resp->done = 1;
+
+        // set mbuf
+        mbuf = STAILQ_LAST(&resp->mhdr, mbuf, next);
+        if( mbuf == NULL || mbuf_full(mbuf)){
+            mbuf = mbuf_get();
+            if( mbuf == NULL){
+                return NC_ENOMEM;
+            }
+
+            mbuf_insert(&resp->mhdr, mbuf);
+            resp->pos = mbuf->pos;
+        }
+
+        ASSERT(mbuf->end - mbuf->last > 0);
+        msize = mbuf_size(mbuf);
+
+        if( msg->result == MSG_PARSE_PING){
+            n = nc_snprintf(mbuf->last,100,"+PONG"CRLF);
+        }else{
+
+            NOT_REACHED();
+        }
+        
+        ASSERT(mbuf->last + n <= mbuf->end);
+
+        mbuf->last += n;
+        resp->mlen += n;
+
+
+        conn->enqueue_outq(ctx, conn, msg);
+
+        rstatus_t t = event_add_out(ctx->evb, conn);
+        if(t != NC_OK )
+            conn->err = errno;
+
+        return true;
+    }
+
+  
+
+    if( msg->result == MSG_PARSE_AUTH || conn->authed == 0){
+
+        log_debug(LOG_INFO, "in auth command");
+        struct msg *resp = msg_get(conn, false, conn->redis);
+        struct mbuf *mbuf;
+        size_t msize;
+        ssize_t n;
+        sp = conn->owner;
+
+
+        msg->peer = resp;
+        resp->peer= msg;
+
+        msg->done = 1;
+        resp->done = 1;
+
+        // set mbuf
+        mbuf = STAILQ_LAST(&resp->mhdr, mbuf, next);
+        if( mbuf == NULL || mbuf_full(mbuf)){
+            mbuf = mbuf_get();
+            if( mbuf == NULL){
+                return NC_ENOMEM;
+            }
+
+            mbuf_insert(&resp->mhdr, mbuf);
+            resp->pos = mbuf->pos;
+        }
+
+        ASSERT(mbuf->end - mbuf->last > 0);
+        msize = mbuf_size(mbuf);
+
+        if( msg->result == MSG_PARSE_AUTH ){
+
+
+            if(!sp->b_pass){
+                n = nc_snprintf(mbuf->last,100,"-ERR Client sent AUTH, but no password is set"CRLF);
+
+            }else if( (sp->password.len == msg->key_end - msg->key_start)  ||
+                    (!nc_strncmp(sp->password.data, msg->key_start, msg->key_end - msg->key_start))){
+
+                n = nc_snprintf(mbuf->last,100,"+OK"CRLF);
+                conn->authed = 1;
+
+            }else{
+
+                n = nc_snprintf(mbuf->last,100,"-ERR invalid password"CRLF);
+                conn->authed = 0;
+            }
+        }else if(conn->authed == 0){
+                n = nc_snprintf(mbuf->last,100,"-ERR operation not permitted"CRLF);
+        }else{
+
+            NOT_REACHED();
+        }
+        
+        ASSERT(mbuf->last + n <= mbuf->end);
+
+        mbuf->last += n;
+        resp->mlen += n;
+
+
+        conn->enqueue_outq(ctx, conn, msg);
+
+        rstatus_t t = event_add_out(ctx->evb, conn);
+        if(t != NC_OK )
+            conn->err = errno;
+
+        return true;
+    }
+
+    */
 
     return false;
 }
@@ -514,6 +703,8 @@ req_forward_stats(struct context *ctx, struct server *server, struct msg *msg)
     stats_server_incr_by(ctx, server, request_bytes, msg->mlen);
 }
 
+
+
 static void
 req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
 {
@@ -527,7 +718,8 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     ASSERT(c_conn->client && !c_conn->proxy);
 
     /* enqueue message (request) into client outq, if response is expected */
-    if (!msg->noreply) {
+    /* if msg is a redirect msg, it was in the outq, and not need add one more time */
+    if (!msg->noreply && 0 == msg->redirect) {
         c_conn->enqueue_outq(ctx, c_conn, msg);
     }
 
@@ -538,7 +730,19 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     key = kpos->start;
     keylen = (uint32_t)(kpos->end - kpos->start);
 
-    s_conn = server_pool_conn(ctx, c_conn->owner, key, keylen);
+
+    s_conn = server_pool_conn(ctx, c_conn->owner, key, keylen, msg);
+
+
+    /*
+    if( pool->b_redis_pass && s_conn->authed == 0){
+        log_debug(LOG_VERB,"s_conn is un-authed\n ");
+        req_forward_error(ctx, c_conn, msg);
+        return;
+    }
+    */
+
+
     if (s_conn == NULL) {
         req_forward_error(ctx, c_conn, msg);
         return;
@@ -561,6 +765,14 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     log_debug(LOG_VERB, "forward from c %d to s %d req %"PRIu64" len %"PRIu32
               " type %d with key '%.*s'", c_conn->sd, s_conn->sd, msg->id,
               msg->mlen, msg->type, keylen, key);
+}
+
+void
+req_redirect (struct context *ctx, struct conn *c_conn, struct msg *msg)
+{
+
+ 	 log_debug(LOG_VVERB, "redirect msg %p from old-server to new-server", msg);
+	 req_forward(ctx, c_conn, msg);
 }
 
 void
@@ -698,6 +910,7 @@ req_send_done(struct context *ctx, struct conn *conn, struct msg *msg)
               "s %d", msg->id, msg->mlen, msg->type, conn->sd);
 
     /* dequeue the message (request) from server inq */
+
     conn->dequeue_inq(ctx, conn, msg);
 
     /*

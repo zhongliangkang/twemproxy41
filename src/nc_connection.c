@@ -167,6 +167,7 @@ struct conn *
 conn_get(void *owner, bool client, bool redis)
 {
     struct conn *conn;
+    struct server_pool *sp;
 
     conn = _conn_get();
     if (conn == NULL) {
@@ -177,6 +178,28 @@ conn_get(void *owner, bool client, bool redis)
     conn->redis = redis ? 1 : 0;
 
     conn->client = client ? 1 : 0;
+
+	if (client) {
+		sp = owner;
+	} else {
+		sp = ((struct server*) owner)->owner;
+	}
+
+	 /* assum all the client connection is authed if no password is set */
+	 /* redis/memcache client need tobe authed.
+	    * redis server connection need to be authed when redis_password is set.
+	    *     */
+
+
+	 if (client && sp->b_pass ) {
+		 conn->authed = 0;
+	 } else if (!client && sp->b_redis_pass && redis) {
+		 conn->authed = 0;
+	 } else {
+		 conn->authed = 1;
+	 }
+
+
 
     if (conn->client) {
         /*
@@ -377,11 +400,21 @@ conn_sendv(struct conn *conn, struct array *sendv, size_t nsend)
 {
     ssize_t n;
 
+    struct iovec *p;
+    size_t ii;
+
+
     ASSERT(array_n(sendv) > 0);
     ASSERT(nsend != 0);
     ASSERT(conn->send_ready);
 
     for (;;) {
+    	for (ii=0;ii<sendv->nelem;ii++) {
+    		p = (struct iovec *) sendv->elem + ii;
+    		 log_debug(LOG_VERB, "ii: %d, sendv on sd %d: len=%d  content=<%.*s>",
+    		                  ii, conn->sd, p->iov_len, p->iov_len, (char *)p->iov_base);
+
+    	}
         n = nc_writev(conn->sd, sendv->elem, sendv->nelem);
 
         log_debug(LOG_VERB, "sendv on sd %d %zd of %zu in %"PRIu32" buffers",
