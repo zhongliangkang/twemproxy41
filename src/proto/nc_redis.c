@@ -2141,8 +2141,10 @@ redis_copy_bulk(struct msg *dst, struct msg *src)
             }
 
             /* for redirect occur*/
-            dst->v_start = mbuf->pos;
-            dst->v_len = mbuf_length(mbuf);
+            if (dst != NULL) {
+            	dst->v_start = mbuf->pos;
+            	dst->v_len = mbuf_length(mbuf);
+            }
 
             len -= mbuf_length(mbuf);
             mbuf = nbuf;
@@ -2162,7 +2164,7 @@ redis_copy_bulk(struct msg *dst, struct msg *src)
         dst->mlen += bytes;
     }
     src->mlen -= bytes;
-    log_debug(LOG_VVERB, "redis_copy_bulk copy bytes: %d", bytes);
+    log_debug(LOG_VVERB, "redis_copy_bulk copy bytes: %d from %d to %d", bytes, src, dst);
     return NC_OK;
 }
 

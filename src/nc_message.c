@@ -845,7 +845,7 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 		//MSG_REQ_REDIS_MGET MSG_REQ_REDIS_DEL
 		nbuf = STAILQ_NEXT(mbuf, next);
 		if (nbuf != NULL) {
-			log_debug(LOG_VVERB, "nbuf %p ", mbuf);
+			log_debug(LOG_VVERB, "reset nbuf %p ", mbuf);
 			nbuf->pos = nbuf->start;
 		}
 
@@ -853,15 +853,22 @@ static bool redirect_check(struct context *ctx, struct conn *conn, struct msg *m
 		if (pmsg->type == MSG_REQ_REDIS_MSET) {
 			nbuf = STAILQ_NEXT(nbuf, next);
 			if (nbuf != NULL) {
-				log_debug(LOG_VVERB, "nbuf %p ", mbuf);
+				log_debug(LOG_VVERB, "reset nbuf %p ", mbuf);
 				//v_start v_len is init a nc_redis.c redis_copy_bulk
 				if (pmsg->v_len > 0) {
 					nbuf->pos = pmsg->v_start;
-					nbuf->last = nbuf->pos + pmsg->v_len;
 				} else {
 					nbuf->pos = nbuf->start;
 				}
 			}
+
+		}
+
+		nbuf = STAILQ_NEXT(nbuf, next);
+		while (nbuf != NULL) {
+			log_debug(LOG_VVERB, "reset nbuf %p ", mbuf);
+			nbuf->pos = nbuf->start;
+			nbuf = STAILQ_NEXT(nbuf, next);
 		}
 
 	}
