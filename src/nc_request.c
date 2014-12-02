@@ -538,7 +538,7 @@ req_filter(struct context *ctx, struct conn *conn, struct msg *msg)
             if(!sp->b_pass){
                 n = nc_snprintf(mbuf->last,100,"-ERR Client sent AUTH, but no password is set"CRLF);
 
-            }else if( (sp->password.len == msg->key_end - msg->key_start)  ||
+            }else if( (sp->password.len == msg->key_end - msg->key_start)  &&
                     (!nc_strncmp(sp->password.data, msg->key_start, msg->key_end - msg->key_start))){
                 /* check the password OK */
                 n = nc_snprintf(mbuf->last,100,"+OK"CRLF);
