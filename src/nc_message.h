@@ -271,6 +271,9 @@ struct msg {
     unsigned             last_fragment:1; /* last fragment? */
 
     unsigned             swallow:1;       /* swallow response? */
+    /*
+     *  a swallow response is not send to anywhere, just drop it
+     */
     unsigned             redis:1;         /* redis? */
 
     unsigned             transfer_status:2; /* request: the key is in trans?*/

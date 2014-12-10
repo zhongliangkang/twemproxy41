@@ -611,7 +611,7 @@ server_connect(struct context *ctx, struct server *server, struct conn *conn)
 
 
 con_ok:
-    log_error( "auth to  server %s sd:%d",server->pname.data, conn->sd);
+    log_error( "auth to server %s sd:%d",server->pname.data, conn->sd);
 
     con_ret = server_send_redis_auth(ctx, conn);
 
@@ -2267,7 +2267,7 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
     au_msg->mlen += (uint32_t)n;
 
     au_msg->owner = NULL;
-    au_msg->noreply = 1;
+    au_msg->swallow = 1;
 
 
     s_conn->enqueue_inq(ctx, s_conn, au_msg);
