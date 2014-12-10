@@ -24,7 +24,7 @@ struct logger {
     int  level;  /* log level */
     int  fd;     /* log file descriptor */
     int  nerror; /* # log error */
-    int  write_count ; /* write count */
+    uint32_t  write_count ; /* write count */
 };
 
 #define LOG_EMERG   0   /* system in unusable */
@@ -42,8 +42,8 @@ struct logger {
 
 #define LOG_MAX_LEN 256 /* max length of log message */
 
-#define LOG_N_TRY_REOPEN 102400
-#define LOG_MAX_FILESIZE 1024*1024*200ll
+/* max log file contain 1M lines,with each line average 100 Byte ,so the file will be about 100M */
+#define LOG_N_TRY_REOPEN 1024*1024*1ll
 
 /*
  * log_stderr   - log to stderr
