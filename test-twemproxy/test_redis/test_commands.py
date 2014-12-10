@@ -97,7 +97,7 @@ def test_sscan():
 
 def test_ping ():
     r = getconn()
-    assert(r.set('k','k') == 'OK')
-    assert(r.ping() == 'PONG')
+    assert(r.set('k','k') == True)
+    assert(r.ping() == True)
 
 

@@ -221,8 +221,16 @@ class NutCracker(Base):
         return self._info_dict()
 
     def _gen_conf_section(self):
-        template = '    - $host:$port:1 pvz1 0-419999 1'
-        cfg = '\n'.join([TT(template, master.args) for master in self.masters])
+        num = len(self.masters)
+        seg = 420000/num
+        i = 0
+        cfg=''
+        for master in self.masters:
+            start = i * seg  
+            end = (i+1) * seg  - 1
+            template = '    - $host:$port:1 pvz1 %d-%d 1' % (start, end)
+            cfg = cfg + TT(template, master.args) + "\n"
+            i+=1
         return cfg
 
     def _gen_conf(self):
@@ -259,7 +267,7 @@ $cluster_name:
         return s.strip().replace('This is nutcracker-', '')
 
     def _info_dict(self):
-        logging.info("try %s %s" % (self.args['host'], self.args['status_port']))
+        logging.info("try %s %s stats" % (self.args['host'], self.args['status_port']))
         try:
             t = telnetlib.Telnet(self.args['host'], self.args['status_port'])
             t.write('stats')
