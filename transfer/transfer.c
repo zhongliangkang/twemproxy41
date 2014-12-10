@@ -30,7 +30,7 @@ void _my_log(const char *file, int line, const char *fmt, ...) {
 	local = localtime(&t);
 	timestr = asctime(local);
 
-	len += snprintf(buf + len, size - len, "[%.*s] %s:%d ", (int )strlen(timestr) - 1, timestr, file, line);
+	len += snprintf(buf + len, size - len, "[%.*s] %s:%d (%lu)", (int )strlen(timestr) - 1, timestr, file, line,pthread_self());
 
 	va_start(args, fmt);
 	len += vsnprintf(buf + len, size - len, fmt, args);
@@ -497,7 +497,7 @@ int transfer_bucket(void * ptr) {
 		goto err;
 	}
 
-	n = snprintf(cmd, CMD_MAX_LEN, "rctransbegin %d %d", bucketid, bucketid);
+	n = snprintf(cmd, CMD_MAX_LEN, "rctransbegin out %d %d", bucketid, bucketid);
 
 	repl = redisCommand(src->rd, cmd);
 
@@ -511,6 +511,7 @@ int transfer_bucket(void * ptr) {
 		goto err;
 	}
 
+	n = snprintf(cmd, CMD_MAX_LEN, "rctransbegin in %d %d", bucketid, bucketid);
 	repl = redisCommand(dst->rd, cmd);
 	if (check_reply_status_str(repl, bucket_transfering) == REDIS_OK) {
 		// bucket is locking in src. how to do?
@@ -615,7 +616,7 @@ int transfer_bucket(void * ptr) {
 
 	freeReplyObject(keys);
 
-	n = snprintf(cmd, CMD_MAX_LEN, "rctransend %d %d", bucketid, bucketid);
+	n = snprintf(cmd, CMD_MAX_LEN, "rctransend out %d %d", bucketid, bucketid);
 	repl = redisCommand(src->rd, cmd);
 	if (check_reply_ok_and_free(src, cmd, repl) != REDIS_OK) {
 		trans_log("trans end failed: %d\n", bucketid);
@@ -623,6 +624,7 @@ int transfer_bucket(void * ptr) {
 		goto err;
 	}
 
+	n = snprintf(cmd, CMD_MAX_LEN, "rctransend in %d %d", bucketid, bucketid);
 	repl = redisCommand(dst->rd, cmd);
 	if (check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK) {
 		trans_log("trans end dst failed: %d\n", bucketid);
