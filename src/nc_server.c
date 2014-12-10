@@ -2267,6 +2267,7 @@ rstatus_t server_send_redis_auth(struct context *ctx, struct conn *s_conn){
     au_msg->mlen += (uint32_t)n;
 
     au_msg->owner = NULL;
+    au_msg->noreply = 1;
 
 
     s_conn->enqueue_inq(ctx, s_conn, au_msg);
