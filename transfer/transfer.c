@@ -917,12 +917,14 @@ int main(int argc, char **argv) {
 			trans_log("check twemproxy <%s:%d> FAIL, return NULL\n", proxylist[i].host, proxylist[i].port + 1000);
 			goto end;
 		}
+        trans_log("servers:%s\n",add_buf);
 //127.0.0.1:30000 pvz1 0-419999 1
 		s = p = add_buf;
-		while ( p - add_cmd < n) {
+		while ( p - add_buf < n) {
 			if (*p == '\n') {
 				*p = '\0';
 				int sn = sscanf (s, "%[^:]:%d %s %d-%d %d", matchbuf_host, &matchbuf_port, matchbuf_app, &matchbuf_seg_start, &matchbuf_seg_end, &matchbuf_status);
+                trans_log("get server:%s:%d %s %d-%d %d\n",matchbuf_host,matchbuf_port,matchbuf_app,matchbuf_seg_start,matchbuf_seg_end,matchbuf_status);
 				if (sn == 6) {
 					if (0 == strcmp(matchbuf_host, src_host)
 							&& matchbuf_port == src_port
@@ -932,14 +934,13 @@ int main(int argc, char **argv) {
 							&& matchbuf_seg_end >= seg_end
 					) {
 						matched = 1;
-						s = p+1;
 					}
 				}
 
+                s = p+1;
 			}
 
 			p++;
-
 		}
 
 
