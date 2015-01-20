@@ -170,12 +170,13 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	//first check this key is in dst ?
 	snprintf(cmd, CMD_MAX_LEN, "type \"%s\"", keyname);
 	reply = redisCommand(dst->rd, "type %b", keyname, keyname_len);
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 	if (!reply) {
 		trans_log("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
 	if (reply->len != 4 && strncmp(reply->str, "none", 4) != 0) {
+		trans_log("ERROR, %s:%d a duplicate key found '%s'\n", src->host, src->port, keyname);
 		freeReplyObject(reply);
 		return REDIS_DUP;
 	} else {
@@ -185,7 +186,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	snprintf(cmd, CMD_MAX_LEN, "pttl \"%s\"", keyname);
 	reply = redisCommand(src->rd, "pttl %b", keyname, keyname_len);
 
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 	// pttl result mayben null
 	if (!reply) {
 		trans_log("ERR: do %s failed\n", cmd);
@@ -210,12 +211,12 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	//get value of key at src, dump return maybe nil
 	snprintf(cmd, CMD_MAX_LEN, "dump %s", keyname);
 	reply = redisCommand(src->rd, "dump %b", keyname, keyname_len);
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 	if (!reply) {
 		trans_log("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 
 	if (reply->type == REDIS_REPLY_NIL) {
 		trans_log("WARN: get the key %s failed, may be is expired\n", keyname);
@@ -228,7 +229,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname, ttl);
 		reply_set = redisRestoreCommand(dst->rd, keyname, keyname_len, ttl, reply->str, reply->len);
 
-		print_reply_info(setcmd, reply_set);
+		//print_reply_info(setcmd, reply_set);
 		freeReplyObject(reply_set);
 	} else {
 		trans_log("ERR: do %s failed, return not a STRING\n", cmd);
@@ -257,6 +258,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	*/
 
 	return REDIS_OK;
+
 
 }
 
@@ -380,13 +382,14 @@ int transfer_bucket(void * ptr) {
 			continue;
 		}
 		status = trans_string(src, dst, keys->element[i]->str, keys->element[i]->len);
-
+		trans_log("transkey '%s' return %d\n", keys->element[i]->str, status);
 		if (REDIS_OK == status) {
 
 		} else if (REDIS_DUP == status) {
 			//dup ++
 			pthread_mutex_lock(&t->job->mutex);
 			t->job->key_fail ++;
+
 			pthread_mutex_unlock(&t->job->mutex);
 		}	else {
 			trans_log("trans key '%s' failed @ thread:%d\n", keys->element[i]->str, processid);

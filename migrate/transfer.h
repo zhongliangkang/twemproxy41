@@ -66,7 +66,7 @@
 #define REDIS_DUP 2
 
 typedef struct twemproxy_info {
-	char host[16];
+	char host[1024];
 	uint16_t port;
 	uint16_t stat_port; // twemproxy has a stat_port;
 	int fd; //conn fd;
@@ -74,7 +74,7 @@ typedef struct twemproxy_info {
 
 
 typedef struct redis_info {
-	char host[16];
+	char host[1024];
 	uint16_t port;
 	uint16_t stat_port; // twemproxy has a stat_port;
 	redisContext * rd; //redis descriptor
