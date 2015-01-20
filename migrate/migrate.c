@@ -242,6 +242,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	UNLOCK_KEY:
 
 	//TODO DEL  key at src
+	/*
 	snprintf(cmd, CMD_MAX_LEN, "del '%s'", keyname);
 	reply = redisCommand(src->rd, "del %b", keyname, keyname_len);
 	print_reply_info(cmd, reply);
@@ -253,6 +254,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		// return a work;
 		return REDIS_ERR;
 	}
+	*/
 
 	return REDIS_OK;
 
@@ -312,6 +314,7 @@ int check_reply_ok_and_free(redisInfo *ri, const char * cmd, redisReply * reply)
 }
 
 void* stats_thread(void *ptr) {
+	return ptr;
 }
 
 void* dojob(void * ptr) {
@@ -458,7 +461,7 @@ int parse_ipport(const char* ipport, char *ip, uint32_t iplen, uint16_t * port) 
 	return REDIS_OK;
 }
 
-int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
+int connect_redis(redisInfo * redis, char *hostname, uint16_t port, char * pass) {
 	struct timeval timeout = { 1, 500000 }; // 1.5 seconds
 	redis->rd = redisConnectWithTimeout(hostname, port, timeout);
 	if (redis->rd == NULL || redis->rd->err) {
@@ -471,6 +474,18 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
 		return REDIS_ERR;
 	}
 	//trans_log("connect redis %s:%d succ %p\n", hostname, port, (void * )redis->rd);
+
+	if (strlen(pass)>0) {
+		redisReply  * reply;
+		reply = redisCommand(redis->rd, "auth %s", pass);
+		if (reply->len != 2 || strncmp (reply->str , "OK", 2) != 0) {
+			trans_log("connect redis %s:%d using pass '%s' failed\n", hostname, port, pass);
+			redisFree(redis->rd);
+			return REDIS_ERR;
+		}
+	}
+
+
 	redis->port = port;
 	strncpy(redis->host, hostname, sizeof(redis->host));
 	return REDIS_OK;
@@ -600,19 +615,19 @@ int main(int argc, char **argv) {
 
 	//init redis handle
 	for (i = 0; i < MAX_THREAD_NUM; i++) {
-		status = connect_redis(&task[i].src, src_host, src_port);
+		status = connect_redis(&task[i].src, src_host, src_port, src_passwd);
 		if (status != REDIS_OK) {
 			task[i].src.rd = NULL;
-			trans_log("[thread %d] conn src redis %s:%d failed\n", i, src_host, src_port);
+			trans_log("[thread %d] conn src redis %s:%d:'%s' failed\n", i, src_host, src_port, src_passwd);
 			goto end;
 		}
 
 		//docmd(&task[i].src, "PING");
 
-		status = connect_redis(&task[i].dst, dst_host, dst_port);
+		status = connect_redis(&task[i].dst, dst_host, dst_port, dst_passwd);
 		if (status != REDIS_OK) {
 			task[i].dst.rd = NULL;
-			trans_log("[thread %d] conn src redis %s:%d failed\n", i, dst_host, dst_port);
+			trans_log("[thread %d] conn src redis %s:%d:'%s' failed\n", i, dst_host, dst_port, dst_passwd);
 			goto end;
 		}
 
