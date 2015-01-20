@@ -88,7 +88,7 @@ req_log(struct msg *req)
 
     req_type = msg_type_string(req->type);
 
-    log_debug(LOG_NOTICE, "req %"PRIu64" done on c %d req_time %"PRIi64".%03"PRIi64
+    log_debug(LOG_VERB, "req %"PRIu64" done on c %d req_time %"PRIi64".%03"PRIi64
               " msec type %.*s narg %"PRIu32" req_len %"PRIu32" rsp_len %"PRIu32
               " key0 '%s' peer '%s' done %d error %d",
               req->id, req->owner->sd, req_time / 1000, req_time % 1000,

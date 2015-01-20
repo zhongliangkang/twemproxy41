@@ -93,16 +93,21 @@ log_reopen(void)
 
     if (l->fd != STDERR_FILENO) {
         close(l->fd);
-        log_init_realname();
-
-
-        l->fd = open(l->realname, O_WRONLY | O_APPEND | O_CREAT, 0644);
-        if (l->fd < 0) {
-
-            log_stderr_safe("reopening log file '%s' failed, ignored: %s", l->realname,
-                       strerror(errno));
-        }
     }
+
+    log_init_realname();
+
+	if (l->name == NULL || !strlen(l->name)) {
+		return;
+	}
+
+    l->fd = open(l->realname, O_WRONLY | O_APPEND | O_CREAT, 0644);
+    if (l->fd < 0) {
+
+        log_stderr_safe("reopening log file '%s' failed, ignored: %s", l->realname,
+                strerror(errno));
+    }
+
 }
 
 void
@@ -179,14 +184,9 @@ _log(const char *file, int line, int panic, const char *fmt, ...)
 
     if (l->fd != STDERR_FILENO && l->fd >= 0) {
     	if (++l->write_count > LOG_N_TRY_REOPEN) {
-    		offset = lseek(l->fd, 0, SEEK_CUR );
-    		if (offset > LOG_MAX_FILESIZE) {
-    			 log_stderr("log_reopen log file '%s' because lseek = %lld > %lld ", l->realname, offset, LOG_MAX_FILESIZE);
-    			log_reopen();
-    		}
-
-    		l->write_count = 0;
-    	}
+                 log_reopen();
+                 l->write_count = 0;
+        }
     }
 
 
