@@ -16,7 +16,7 @@
 #define LOG_MAX_LEN 102400
 #define MAX_THREAD_NUM 100
 
-uint32_t g_job_thread_num = 3;
+uint32_t g_job_thread_num = 10;
 uint32_t g_enable_conflit_key_num = 0;
 
 #define trans_log(...) do {                                                      \
@@ -383,20 +383,29 @@ int transfer_bucket(void * ptr) {
 		}
 		status = trans_string(src, dst, keys->element[i]->str, keys->element[i]->len);
 		trans_log("transkey '%s' return %d\n", keys->element[i]->str, status);
+
+
 		if (REDIS_OK == status) {
+			pthread_mutex_lock(&t->job->mutex);
+			t->job->key_succ ++;
+			pthread_mutex_unlock(&t->job->mutex);
 
 		} else if (REDIS_DUP == status) {
 			//dup ++
 			pthread_mutex_lock(&t->job->mutex);
 			t->job->key_fail ++;
-
 			pthread_mutex_unlock(&t->job->mutex);
 		}	else {
+			pthread_mutex_lock(&t->job->mutex);
+			t->job->key_fail ++;
+			pthread_mutex_unlock(&t->job->mutex);
+
 			trans_log("trans key '%s' failed @ thread:%d\n", keys->element[i]->str, processid);
 			return REDIS_ERR;
 		}
 
 		if (t->job->key_fail >= t->job->key_fail_enable) {
+			t->job->err = 1;
 			trans_log("ERROR, trans key failed key over %d, stop\n",t->job->key_fail_enable);
 			break;
 		}
@@ -551,7 +560,7 @@ int main(int argc, char **argv) {
 	char * src_passwd;
 	char * dst_passwd;
 	uint16_t src_port, dst_port;
-	int32_t seg_start, seg_end, idx;
+	int32_t seg_start, seg_end, idx, keys_todo;
 	uint32_t i;
 
 	jobQueue job;
@@ -569,8 +578,8 @@ int main(int argc, char **argv) {
 	redisReply * reply;
 	redisReply * keys;
 
-	redisInfo proxylist[100];
-	int proxylist_len = 0;
+
+
 
 	if (argc != 6) {
 		printf("transfer: bad arg number %d\n", argc);
@@ -654,7 +663,7 @@ int main(int argc, char **argv) {
 //	job.key_num = keys->elements;
 	job.key_fail = 0;
 	job.key_fail_enable = g_enable_conflit_key_num;
-//	job.key_succ = 0;
+ 	job.key_succ = 0;
 
 
 	trans_log("%s:%d:%s keys number is %d\n", src_host, src_port, src_passwd, keys->elements);
@@ -667,7 +676,7 @@ int main(int argc, char **argv) {
 	job.keys = keys;
 
 	for (i = 0; i < g_job_thread_num; i++) {
-		trans_log("start a thread %d\n", task[i].processid);
+//		trans_log("start a thread %d\n", task[i].processid);
 		pthread_create(&thrd[i], NULL, dojob, (void *) &task[i]);
 	}
 
@@ -679,7 +688,11 @@ int main(int argc, char **argv) {
 
 	//pthread_join(stats_thrd, NULL);
 
-	// error happed when transfering, stop here!
+	keys_todo = job.keys->elements - job.key_succ - job.key_fail;
+	trans_log ("TRANSFER_DONE: src %s:%d dst %s:%d keynum:%d succ:%d failed:%d err:%d todo:%d\n",
+			src_host, src_port, dst_host, dst_port,
+			job.keys->elements, job.key_succ, job.key_fail, job.err,  keys_todo);
+
 	if (job.err) {
 		log_err("ERROR: transfering some error happened, transfer failed, trans job not finished,exit.\n");
 		exit(1);

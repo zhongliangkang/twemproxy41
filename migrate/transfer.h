@@ -100,6 +100,7 @@ typedef struct job_queue {
 
 	uint32_t key_fail;
 	uint32_t key_fail_enable;
+	uint32_t key_succ ;
 	pthread_mutex_t mutex;
 } jobQueue;
 
