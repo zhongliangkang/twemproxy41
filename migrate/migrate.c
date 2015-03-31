@@ -15,6 +15,15 @@
 #define CMD_MAX_LEN  100000
 #define LOG_MAX_LEN 102400
 #define MAX_THREAD_NUM 100
+/* Hash buckets, fixed: 420000 */
+#define REDIS_HASH_BUCKETS 420000 
+static uint64_t FNV_64_INIT = UINT64_C(0xcbf29ce484222325);
+static uint64_t FNV_64_PRIME = UINT64_C(0x100000001b3);
+static uint32_t FNV_32_INIT = 2166136261UL;
+static uint32_t FNV_32_PRIME = 16777619;
+// global variables
+static int32_t src_seg_start,src_seg_end;
+
 
 uint32_t g_job_thread_num = 10;
 uint32_t g_enable_conflit_key_num = 0;
@@ -48,6 +57,30 @@ void _my_log(const char *file, int line, const char *fmt, ...) {
 	write(STDOUT_FILENO, buf, len);
 
 }
+
+
+uint32_t
+hash_fnv1a_64(const char *key, size_t key_length)
+{
+    uint32_t hash = (uint32_t) FNV_64_INIT;
+    size_t x;
+
+    for (x = 0; x < key_length; x++) {
+        uint32_t val = (uint32_t)key[x];
+        hash ^= val;
+        hash *= (uint32_t) FNV_64_PRIME;
+    }
+
+    return hash; 
+}
+uint32_t get_key_hash(char * key, size_t len){
+
+    uint32_t val = hash_fnv1a_64( key, len);
+    val %= REDIS_HASH_BUCKETS;
+
+    return val; 
+}
+
 int tcp_connect(char *ip, uint16_t port) {
 
 	struct hostent *host;
@@ -372,7 +405,7 @@ int transfer_bucket(void * ptr) {
 	keys = t->job->keys;
 
 	assert(src->rd && dst->rd);
- 	trans_log("transfer_bucket src %s:%d dst %s:%d processid %d \n", src->host, src->port, dst->host, dst->port, processid);
+ 	trans_log("transfer_bucket src %s:%d dst %s:%d processid %d .\nsegstart:%d ,sedend:%d \n", src->host, src->port, dst->host, dst->port, processid,src_seg_start,src_seg_end);
 
 	keys_len = keys->elements;
 
@@ -381,7 +414,13 @@ int transfer_bucket(void * ptr) {
 		if (i % g_job_thread_num != processid) {
 			continue;
 		}
-		status = trans_string(src, dst, keys->element[i]->str, keys->element[i]->len);
+
+        int32_t keyhash = get_key_hash(keys->element[i]->str, keys->element[i]->len);
+        if( keyhash < src_seg_start || keyhash > src_seg_end) {
+            printf("keyhash is not ok, skip.  start: %d,end: %d. keyhash: %d\n",src_seg_start,src_seg_end,keyhash);
+            continue;
+        }
+        status = trans_string(src, dst, keys->element[i]->str, keys->element[i]->len);
 		trans_log("transkey '%s' return %d\n", keys->element[i]->str, status);
 
 
@@ -553,6 +592,7 @@ int parse_proxylist(char *filename, redisInfo *proxylist) {
 
 }
 
+
 int main(int argc, char **argv) {
 	int status, n;
 
@@ -581,9 +621,13 @@ int main(int argc, char **argv) {
 
 
 
-	if (argc != 6) {
+    // init as 0~420000
+	seg_start = 0;
+	seg_end = 420000;
+
+	if (argc != 8) {
 		printf("transfer: bad arg number %d\n", argc);
-		printf("usage: migrate   src-redis src-redis-pass dst-redis dst-redis-pass enable-duplicate-key-num\n\n");
+		printf("usage: migrate   src-redis:port src-redis-pass dst-redis:port dst-redis-pass enable-duplicate-key-num src_seg_start src_seg_end\n\n");
 		exit(1);
 	}
 
@@ -604,21 +648,26 @@ int main(int argc, char **argv) {
 
 	if (strlen(argv[5]) > 0) {
 		g_enable_conflit_key_num = _nc_atoi((unsigned char *) argv[5], strlen(argv[5]));
+	}
 
+	if (strlen(argv[6]) > 0) {
+		src_seg_start = _nc_atoi((unsigned char *) argv[6], strlen(argv[6]));
+	}
+
+	if (strlen(argv[7]) > 0) {
+		src_seg_end = _nc_atoi((unsigned char *) argv[7], strlen(argv[7]));
 	}
 
 	trans_log("args:src host %s\n", argv[1]);
 	trans_log("args:dst host %s\n", argv[3]);
 	trans_log("args:enable conflit key num to %s\n", argv[5]);
 
-	seg_start = 0;
-	seg_end = 420000;
 
 	job.done = 0;
 	pthread_mutex_init(&job.mutex, NULL);
 	job.err = 0;
 
-	trans_log("transfer: got args %s : %d %s : %d %d %d\n", src_host, src_port, dst_host, dst_port, seg_start, seg_end);
+	trans_log("transfer: got args %s : %d %s : %d %d %d\n", src_host, src_port, dst_host, dst_port, src_seg_start, src_seg_end);
 
 	for (i = 0; i < MAX_THREAD_NUM; i++) {
 		task[i].src.rd = NULL;
