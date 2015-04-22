@@ -226,7 +226,9 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		setcmd = malloc(reply->len + 1024); //1024 is enough
 
 		// maybe very long.
-		snprintf(setcmd, reply->len + 1024, "restore %s_FULLTIME %lld ", keyname, ttl);
+		snprintf (keyname, 1024, "%s_FULLTIME", keyname);
+		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname, ttl);
+		keyname_len = strlen(keyname);
 		reply_set = redisRestoreCommand(dst->rd, keyname, keyname_len, ttl, reply->str, reply->len);
 
 		//print_reply_info(setcmd, reply_set);
