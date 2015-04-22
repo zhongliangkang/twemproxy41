@@ -154,6 +154,7 @@ void print_reply_info(char *cmd, redisReply * reply) {
 int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len) {
 	redisReply *reply_set, *reply;
 	char cmd[CMD_MAX_LEN];
+	char keyname2[CMD_MAX_LEN];
 	char * setcmd = NULL;
 	long long ttl;
 
@@ -226,10 +227,11 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		setcmd = malloc(reply->len + 1024); //1024 is enough
 
 		// maybe very long.
-		snprintf (keyname, 1024, "%s_FULLTIME", keyname);
-		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname, ttl);
-		keyname_len = strlen(keyname);
-		reply_set = redisRestoreCommand(dst->rd, keyname, keyname_len, ttl, reply->str, reply->len);
+	    	
+		snprintf(keyname2, 1024, "%s_FULLTIME", keyname);
+		keyname_len = strlen(keyname2);
+		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname2, ttl);
+		reply_set = redisRestoreCommand(dst->rd, keyname2, keyname_len, ttl, reply->str, reply->len);
 
 		//print_reply_info(setcmd, reply_set);
 		freeReplyObject(reply_set);
