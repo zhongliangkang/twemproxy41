@@ -20,13 +20,13 @@ sub print_log {
 use strict;
 sub start_redis {
 	my $port=shift;
-   my $o=`./redis-server --port $port >log/$port.log 2>&1 &`;
+   my $o=`./bin/redis-server --port $port >log/$port.log 2>&1 &`;
 	
 }
 
 sub stop_redis {
 	my $port=shift;
-   my $o=`./redis-cli -p $port shutdown`;
+   my $o=`./bin/redis-cli -p $port shutdown`;
 	
 }
 
@@ -45,7 +45,7 @@ sub check_process {
 
 sub dbsize {
    my $port=shift;
-   my $dbsize=`./redis-cli -p $port dbsize 2>&1`;
+   my $dbsize=`./bin/redis-cli -p $port dbsize 2>&1`;
    chomp $dbsize;
    return $dbsize;
 #   echo "check_redis port $port dbsize $dbsize"
@@ -65,12 +65,12 @@ if ($pid2) {
 
 print_log ("start nutcracker 22121\n");
 ` cp nutcracker.yml.trans conf/nutcracker.yml`;
-`./nutcracker -d -o twemproxy.log -s 23121`;
+`./bin/nutcracker -d -o twemproxy.log -s 23121`;
 sleep 1;
 
 print_log ("start nutcracker 22122\n");
 ` cp nutcracker.2.yml.trans conf/nutcracker.2.yml`;
-`./nutcracker -c conf/nutcracker.2.yml -d -o twemproxy2.log -s 23122`;
+`./bin/nutcracker -c conf/nutcracker.2.yml -d -o twemproxy2.log -s 23122`;
 sleep 1;
 
 print_log ("start redis 6379\n");
@@ -83,7 +83,7 @@ sleep 1;
 my $MAX_KEY_NUM= 1000000;
 print_log "fill redis 6379 to $MAX_KEY_NUM keys\n";
 my $dbsize = 0;
-my $cmd = "./create_key -h 127.0.0.1 -p 22121 -n $MAX_KEY_NUM -c 'set k\%k k\%k' >/dev/null 2>&1";
+my $cmd = "./bin/create_key -h 127.0.0.1 -p 22121 -n $MAX_KEY_NUM -c 'set k\%k k\%k' >/dev/null 2>&1";
 print_log ($cmd, "\n");
 `$cmd`;
 $dbsize = dbsize 6379;
@@ -96,7 +96,7 @@ sub do_redis_test {
 	my ($port, $logfile) = @_;	
 		unlink ($logfile) if (-f "$logfile");
 		print_log ("do redis-test in sub porcess\n");
-		my $testcmd =" ./redis-test -h 127.0.0.1 -p $port -n 10000000 -c 100  -r 1000000 get k__rand_int__  >/dev/null 2>>$logfile";
+		my $testcmd =" ./bin/redis-test -h 127.0.0.1 -p $port -n 10000000 -c 100  -r 1000000 get k__rand_int__  >/dev/null 2>>$logfile";
 		while  (1) {
 			my $t1 = time;
 			`$testcmd`;
@@ -150,7 +150,7 @@ for (my $p=6379;$p<19999;$p++) {
 	my $dbsize = dbsize $p;
 	my $p1dbsize = dbsize $p1;
 	print_log ("before transfer,$p dbsize: $dbsize, $p1 dbsize:  $p1dbsize\n"); 
-	my $cmd = "./transfer twemproxy-list alpha pvz1 127.0.0.1:$p 127.0.0.1:$p1 0 419999 >o$p 2>&1";
+	my $cmd = "./bin/transfer twemproxy-list alpha pvz1 127.0.0.1:$p 127.0.0.1:$p1 0 419999 >o$p 2>&1";
 	print_log $cmd, "\n";
 	`$cmd`;
 	my $dbsize_2 = dbsize $p;

@@ -884,9 +884,12 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
             struct server_pool *tpool= server->owner;
             while(!TAILQ_EMPTY(&server->s_conn_q)){
                 ASSERT(server->ns_conn_q > 0 );
-
                 conn = TAILQ_FIRST(&server->s_conn_q);
-                conn->close(tpool->ctx, conn);
+				core_close(tpool->ctx, conn);
+                log_error ("%.*s force stop a conn, del evb : %d", server->name.len, server->name.data, del_evb_status);
+				/* core_close is equal conn->colse + event_del_conn */
+                //conn->close(tpool->ctx, conn);
+			    //rstatus_t del_evb_status = event_del_conn(tpool->ctx->evb, conn);	
             }
 
             /* reload OK */
@@ -2169,6 +2172,7 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
 
 					// step 2: modify the meminfo,and change the reload_svr flag for loading new config
 					if (svr->reload_svr) { /* modify the instance info,but the old modification has not reload,free the svr->mif */
+						log_error ("do free svr->mif\n");
 						nc_free(svr->mif.ski);
 						nc_free(svr->mif.new_name);
 						nc_free(svr->mif.new_pname);
