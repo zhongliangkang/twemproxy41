@@ -886,10 +886,8 @@ server_pool_conn(struct context *ctx, struct server_pool *pool, uint8_t *key,
                 ASSERT(server->ns_conn_q > 0 );
                 conn = TAILQ_FIRST(&server->s_conn_q);
 				core_close(tpool->ctx, conn);
-                log_error ("%.*s force stop a conn, del evb : %d", server->name.len, server->name.data, del_evb_status);
 				/* core_close is equal conn->colse + event_del_conn */
                 //conn->close(tpool->ctx, conn);
-			    //rstatus_t del_evb_status = event_del_conn(tpool->ctx->evb, conn);	
             }
 
             /* reload OK */
