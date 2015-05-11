@@ -234,8 +234,7 @@ core_send(struct context *ctx, struct conn *conn)
 
     return status;
 }
-
-static void
+void
 core_close(struct context *ctx, struct conn *conn)
 {
     rstatus_t status;
@@ -330,6 +329,15 @@ core_core(void *arg, uint32_t events)
 {
     rstatus_t status;
     struct conn *conn = arg;
+
+    /* after change server, drop the msg from old redis*/
+    if (conn->sd == -1 ) {
+        log_error("core_core drop event: %04"PRIX32" on %c %d", events,
+            conn->client ? 'c' : (conn->proxy ? 'p' : 's'), conn->sd);
+
+        return NC_ERROR;		
+    }
+
     struct context *ctx = conn_to_ctx(conn);
 
     log_debug(LOG_VVERB, "event %04"PRIX32" on %c %d", events,

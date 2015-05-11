@@ -6,7 +6,7 @@
 OBJ=net.o hiredis.o sds.o async.o 
 #nc_log.o nc_util.o nc_string.o
 EXAMPLES=hiredis-example 
-TESTS=migrate create_key docmd
+TESTS=migrate create_key docmd migrate_ATHLETICS 
 LIBNAME=libhiredis
 
 HIREDIS_MAJOR=0
@@ -116,6 +116,9 @@ docmd: docmd.o $(STLIBNAME)
 	$(CC) -pthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
 
 migrate: migrate.o $(STLIBNAME) 
+	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
+
+migrate_ATHLETICS: migrate_ATHLETICS.o $(STLIBNAME) 
 	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
 
 test: hiredis-test
