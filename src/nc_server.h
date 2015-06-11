@@ -254,5 +254,6 @@ rstatus_t nc_add_new_server(struct server_pool *sp, struct server *tmpsvr, char*
 rstatus_t server_check_hash_keys( struct server_pool *sp, struct server *newsrv);
 rstatus_t nc_server_change_instance(void *sp, char *sp_name, char *old_instance,char *new_instance, char* result);
 rstatus_t nc_is_valid_instance(char *inst, char *ip, int * port);
+//uint32_t server_pool_hash(struct server_pool *pool, uint8_t *key, uint32_t keylen);
 
 #endif

@@ -443,7 +443,7 @@ int transfer_bucket(void * ptr) {
 			return REDIS_ERR;
 		}
 
-		if (t->job->key_fail >= t->job->key_fail_enable) {
+		if (t->job->key_fail > t->job->key_fail_enable) {
 			t->job->err = 1;
 			trans_log("ERROR, trans key failed key over %d, stop\n",t->job->key_fail_enable);
 			break;
