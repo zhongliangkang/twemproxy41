@@ -6,6 +6,7 @@
 
 To build nutcracker from [distribution tarball](http://code.google.com/p/twemproxy/downloads/list):
 
+    $ CFLAGS="-O3 -fno-strict-aliasing"
     $ ./configure
     $ make
     $ sudo make install
@@ -21,6 +22,7 @@ To build nutcracker from source with _debug logs enabled_ and _assertions disabl
     $ git clone git@github.com:twitter/twemproxy.git
     $ cd twemproxy
     $ autoreconf -fvi
+    $ CFLAGS="-O3 -fno-strict-aliasing"
     $ ./configure --enable-debug=log
     $ make
     $ src/nutcracker -h

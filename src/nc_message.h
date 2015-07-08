@@ -170,6 +170,7 @@ typedef enum msg_parse_result {
     ACTION( RSP_REDIS_BULK )                                                                        \
     ACTION( RSP_REDIS_MULTIBULK )                                                                   \
     ACTION( REQ_REDIS_AUTH )                                                                        \
+    ACTION( REQ_REDIS_INLINE_AUTH )                                                                        \
     ACTION( REQ_REDIS_GETSERVER )                                                                   \
     ACTION( REQ_REDIS_MGET_SINGLE_REDIS )                                                           \
     ACTION( REQ_REDIS_REDIRECT )                                                                    \

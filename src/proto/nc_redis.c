@@ -80,6 +80,7 @@ redis_arg0(struct msg *r)
 
     case MSG_REQ_REDIS_GETSERVER:
     case MSG_REQ_REDIS_AUTH:
+    case MSG_REQ_REDIS_INLINE_AUTH:
         return true;
 
     default:
@@ -338,6 +339,9 @@ redis_parse_req(struct msg *r)
     struct mbuf *b;
     uint8_t *p, *m;
     uint8_t ch;
+    uint8_t * inline_p;
+    char ich;
+    struct keypos * mkp;
     enum {
         SW_START,
         SW_NARG,
@@ -390,7 +394,8 @@ redis_parse_req(struct msg *r)
         case SW_NARG:
             if (r->token == NULL) {
                 if (ch != '*') {
-                    goto error;
+                    goto REQ_INLINE;
+                    //goto error;
                 }
                 r->token = p;
                 /* req_start <- p */
@@ -1643,6 +1648,43 @@ enomem:
                 "res %d type %d state %d", r->id, r->result, r->type, r->state);
 
     return;
+REQ_INLINE:
+
+    inline_p = b->pos;
+    ich = *inline_p;
+    /* skip spaces */
+    while( ich == ' ') { inline_p++; ich = *inline_p;  }
+
+    /* maybe this is a req REQ_INLINE */
+    if(inline_p  && strncasecmp(inline_p,"auth ",4) == 0){
+            /* get the space after auth */
+            ich = *(inline_p+=4);
+            /* skip spaces */
+       	    while( ich == ' ') { inline_p++; ich = *inline_p;  }
+            mkp = array_push(r->keys);
+            if(mkp == NULL){ 
+               goto  enomem;
+            }
+            if( *inline_p == '"' || *inline_p == '\'' ) inline_p ++;  /* password with " begin */
+            mkp->start = inline_p;
+       	    while( *inline_p != CR && inline_p < b->last) { inline_p++; }
+	    if( *inline_p == CR && (*(inline_p-1) == '"'||*(inline_p-1) == '\'')){
+		mkp->end = inline_p-1;
+            }else{
+		mkp->end = inline_p;
+            }
+
+	    log_error("inline auth commond: '%s'",mkp->start);
+
+            r->pos = b->last;
+	    r->type = MSG_REQ_REDIS_INLINE_AUTH;
+	    r->result = MSG_PARSE_OK;
+            r->state = SW_START;
+	    r->noforward = 1;
+    }else{
+	    goto error;
+    }
+    return;
 
 error:
     r->result = MSG_PARSE_ERROR;
@@ -2500,7 +2542,7 @@ rstatus_t redis_reply(struct msg *r) {
 
 	ASSERT(response != NULL);
 
-	if (r->owner->authed == 0 && MSG_REQ_REDIS_AUTH != r->type ) {
+	if (r->owner->authed == 0 && MSG_REQ_REDIS_AUTH != r->type && MSG_REQ_REDIS_INLINE_AUTH != r->type) {
 		return msg_append(response, msg_noauth.data, msg_noauth.len);
 	}
 
@@ -2530,7 +2572,22 @@ rstatus_t redis_reply(struct msg *r) {
 			r->owner->authed = 0;
 			return msg_append(response, msg_noauth.data, msg_noauth.len);
 		}
+	case MSG_REQ_REDIS_INLINE_AUTH:  /* inline auth commond  */
+		sp = r->owner->owner;
+		if (sp->password.len == 0) {
+			return msg_append(response, (uint8_t *) msg1.data, msg1.len);
+		}
+		kpos = array_get(r->keys, 0);
+		key_len = (uint32_t) (kpos->end - kpos->start);
+		log_error("inline result: %s,%d",kpos->start,key_len);
+		if (sp->password.len == key_len && 0 == strncmp(sp->password.data, kpos->start, key_len)) {
+			r->owner->authed = 1;
+			return msg_append(response, (uint8_t *) "+OK\r\n", 5);
 
+		} else {
+			r->owner->authed = 0;
+			return msg_append(response, msg_noauth.data, msg_noauth.len);
+		}
 	case MSG_REQ_REDIS_GETSERVER:
 		sp = r->owner->owner;
 		kpos = array_get(r->keys, 0);
