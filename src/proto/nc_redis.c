@@ -108,6 +108,7 @@ redis_arg1(struct msg *r)
     case MSG_REQ_REDIS_GETBIT:
     case MSG_REQ_REDIS_GETSET:
     case MSG_REQ_REDIS_INCRBY:
+    case MSG_REQ_REDIS_INCREX:
     case MSG_REQ_REDIS_INCRBYFLOAT:
     case MSG_REQ_REDIS_SETNX:
 
@@ -786,6 +787,11 @@ redis_parse_req(struct msg *r)
 
                 if (str6icmp(m, 'i', 'n', 'c', 'r', 'b', 'y')) {
                     r->type = MSG_REQ_REDIS_INCRBY;
+                    break;
+                }
+
+                if (str6icmp(m, 'i', 'n', 'c', 'r', 'e', 'x')) {
+                    r->type = MSG_REQ_REDIS_INCREX;
                     break;
                 }
 

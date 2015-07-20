@@ -82,6 +82,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_GETRANGE )                                                                    \
     ACTION( REQ_REDIS_GETSET )                                                                      \
     ACTION( REQ_REDIS_INCR )                                                                        \
+    ACTION( REQ_REDIS_INCREX )    /* suport incr with ttl         */                                \
     ACTION( REQ_REDIS_INCRBY )                                                                      \
     ACTION( REQ_REDIS_INCRBYFLOAT )                                                                 \
     ACTION( REQ_REDIS_MGET )                                                                        \
