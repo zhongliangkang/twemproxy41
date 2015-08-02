@@ -121,6 +121,11 @@ static struct command conf_commands[] = {
         conf_get_string,
         offsetof(struct conf_pool, redis_password) },
 
+      { string("prefix_tag"),
+        conf_set_string,
+        conf_get_string,
+        offsetof(struct conf_pool, prefix_tag) },
+
       null_command
 
 
@@ -300,8 +305,10 @@ conf_pool_each_transform(void *elem, void *data)
 
 	sp->password = cp->password;
 	sp->redis_password = cp->redis_password;
+	sp->prefix_tag     = cp->prefix_tag;
 	sp->b_pass = string_empty(&sp->password) ? 0 : 1;
 	sp->b_redis_pass = string_empty(&sp->redis_password) ? 0 : 1;
+	sp->b_prefix_tag= string_empty(&sp->prefix_tag) ? 0 : 1;
 
 	sp->addrstr = cp->listen.pname;
     sp->port = (uint16_t)cp->listen.port;
@@ -385,9 +392,9 @@ conf_dump(struct conf *cf)
 
         log_debug(LOG_VVERB, "  password: %.*s", cp->password.len, cp->password.data);
 
-
-
         log_debug(LOG_VVERB, "  redis_password: %.*s", cp->redis_password.len, cp->redis_password.data);
+
+        log_debug(LOG_VVERB, "  prefix_tag: %.*s", cp->prefix_tag.len, cp->prefix_tag.data);
 
 
         nserver = array_n(&cp->server);

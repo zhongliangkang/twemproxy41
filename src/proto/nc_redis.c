@@ -263,12 +263,14 @@ redis_argx(struct msg *r)
     case MSG_REQ_REDIS_MGET:
     case MSG_REQ_REDIS_DEL:
         return true;
+    case MSG_REQ_REDIS_MSET:
+        return false;
 
     default:
         break;
     }
 
-    return false;
+    return true;
 }
 
 /*
@@ -2162,7 +2164,8 @@ redis_copy_bulk(struct msg *dst, struct msg *src)
     }
 
     p = mbuf->pos;
-    ASSERT(*p == '$');
+    log_debug(LOG_VVERB, "redis_copy_bulk assert %c,%d", *p,p-mbuf->start);
+//    ASSERT(*p == '$');
     p++;
 
     if (p[0] == '-' && p[1] == '1') {
@@ -2238,8 +2241,9 @@ redis_pre_coalesce(struct msg *r)
 
     switch (r->type) {
     case MSG_RSP_REDIS_INTEGER:
+	//if(pr->type ==MSG_REQ_REDIS_DEL){
         /* only redis 'del' fragmented request sends back integer reply */
-        ASSERT(pr->type == MSG_REQ_REDIS_DEL);
+        //ASSERT(pr->type == MSG_REQ_REDIS_DEL);
 
         mbuf = STAILQ_FIRST(&r->mhdr);
         /*
@@ -2251,16 +2255,21 @@ redis_pre_coalesce(struct msg *r)
         ASSERT(mbuf == STAILQ_LAST(&r->mhdr, mbuf, next));
         ASSERT(r->mlen == mbuf_length(mbuf));
 
-        r->mlen -= mbuf_length(mbuf);
-        mbuf_rewind(mbuf);
+	if(pr->type ==MSG_REQ_REDIS_DEL){
+		r->mlen -= mbuf_length(mbuf);
+		mbuf_rewind(mbuf);
+	}
 
         /* accumulate the integer value in frag_owner of peer request */
         pr->frag_owner->integer += r->integer;
+        //log_error("ttttt: keys:interger %d. ,%d, %d",r->type,r->integer,pr->frag_owner->integer);
+        //}
         break;
 
     case MSG_RSP_REDIS_MULTIBULK:
+        if(pr->type == MSG_REQ_REDIS_MGET){
         /* only redis 'mget' fragmented request sends back multi-bulk reply */
-        ASSERT(pr->type == MSG_REQ_REDIS_MGET);
+        //ASSERT(pr->type == MSG_REQ_REDIS_MGET);
 
         mbuf = STAILQ_FIRST(&r->mhdr);
         /*
@@ -2276,6 +2285,7 @@ redis_pre_coalesce(struct msg *r)
         r->mlen -= (uint32_t)(r->narg_end - r->narg_start);
         mbuf->pos = r->narg_end;
 
+        }
         break;
 
     case MSG_RSP_REDIS_STATUS:
@@ -2286,12 +2296,16 @@ redis_pre_coalesce(struct msg *r)
         }
         break;
 
+    case MSG_RSP_REDIS_BULK:
+        break;
     default:
+	break;
         /*
          * Valid responses for a fragmented request are MSG_RSP_REDIS_INTEGER or,
          * MSG_RSP_REDIS_MULTIBULK. For an invalid response, we send out -ERR
          * with EINVAL errno
          */
+/*
         mbuf = STAILQ_FIRST(&r->mhdr);
         log_hexdump(LOG_ERR, mbuf->pos, mbuf_length(mbuf), "rsp fragment "
                     "with unknown type %d", r->type);
@@ -2300,6 +2314,7 @@ redis_pre_coalesce(struct msg *r)
 
 
         break;
+*/
     }
 }
 
@@ -2335,6 +2350,52 @@ redis_append_key(struct msg *r, uint8_t *key, uint32_t keylen)
     kpos->end = mbuf->last + keylen;
     mbuf_copy(mbuf, key, keylen);
     r->mlen += keylen;
+
+    /* 3. CRLF */
+    mbuf = msg_ensure_mbuf(r, CRLF_LEN);
+    if (mbuf == NULL) {
+        return NC_ENOMEM;
+    }
+    mbuf_copy(mbuf, (uint8_t *)CRLF, CRLF_LEN);
+    r->mlen += (uint32_t)CRLF_LEN;
+
+    return NC_OK;
+}
+
+/* append key with tag */
+static rstatus_t
+redis_append_key_with_tag(struct msg *r, uint8_t *key, uint32_t keylen, uint8_t *tag, uint32_t taglen)
+{
+    uint32_t len;
+    struct mbuf *mbuf;
+    uint8_t printbuf[32];
+    struct keypos *kpos;
+
+    /* 1. keylen */
+    len = (uint32_t)nc_snprintf(printbuf, sizeof(printbuf), "$%d\r\n", keylen+taglen);
+    mbuf = msg_ensure_mbuf(r, len);
+    if (mbuf == NULL) {
+        return NC_ENOMEM;
+    }
+    mbuf_copy(mbuf, printbuf, len);
+    r->mlen += len;
+
+    /* 2. key */
+    mbuf = msg_ensure_mbuf(r, keylen+taglen);
+    if (mbuf == NULL) {
+        return NC_ENOMEM;
+    }
+
+    kpos = array_push(r->keys);
+    if (kpos == NULL) {
+        return NC_ENOMEM;
+    }
+
+    kpos->start = mbuf->last;
+    kpos->end = mbuf->last + keylen+taglen;
+    mbuf_copy(mbuf, tag, taglen);
+    mbuf_copy(mbuf, key, keylen);
+    r->mlen += keylen+taglen;
 
     /* 3. CRLF */
     mbuf = msg_ensure_mbuf(r, CRLF_LEN);
@@ -2408,7 +2469,13 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
     struct msg **sub_msgs;
     uint32_t i;
     rstatus_t status;
+    struct server_pool * sp;
 
+
+    sp = r->owner->owner;
+    ASSERT(sp != NULL);
+
+    //log_error(" redis_fragment_argx  keys:%d %d %d. ",r->narg, key_step,array_n(r->keys));
     ASSERT(array_n(r->keys) == (r->narg - 1) / key_step);
 
     // sub_msgs = nc_zalloc(ncontinuum * sizeof(*sub_msgs));
@@ -2459,7 +2526,10 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
         r->frag_seq[i] = sub_msg = sub_msgs[idx];
 
         sub_msg->narg++;
-        status = redis_append_key(sub_msg, kpos->start, kpos->end - kpos->start);
+
+        uint8_t *tag=sp->prefix_tag.data;
+        //status = redis_append_key_with_tag(sub_msg, kpos->start, kpos->end - kpos->start);
+        status = redis_append_key_with_tag(sub_msg, kpos->start, kpos->end - kpos->start,tag, sp->prefix_tag.len);
         if (status != NC_OK) {
             nc_free(sub_msgs);
             return status;
@@ -2519,9 +2589,127 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
     return NC_OK;
 }
 
+static rstatus_t
+redis_add_tag_for_keys(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq, uint32_t key_step)
+{
+    struct mbuf *mbuf;
+    struct msg **sub_msgs;
+    struct server_pool * sp;
+    uint32_t i;
+    uint8_t *tmp_pos = NULL,*tmp_start=NULL;
+    rstatus_t status;
+
+    sp = r->owner->owner;
+    ASSERT(sp != NULL);
+    sub_msgs = nc_zalloc((array_n(r->keys)) * sizeof(*sub_msgs));
+    if (sub_msgs == NULL) {
+        return NC_ENOMEM;
+    }
+
+    ASSERT(r->frag_seq == NULL);
+    r->frag_seq = nc_alloc((array_n(r->keys)) * sizeof(*r->frag_seq));
+    if (r->frag_seq == NULL) {
+        nc_free(sub_msgs);
+        return NC_ENOMEM;
+    }
+
+    mbuf = STAILQ_FIRST(&r->mhdr);
+    mbuf->pos = mbuf->start;
+
+    /*
+     * This code is based on the assumption that '*narg\r\n$4\r\nMGET\r\n' is located
+     * in a contiguous location.
+     * This is always true because we have capped our MBUF_MIN_SIZE at 512 and
+     * whenever we have multiple messages, we copy the tail message into a new mbuf
+     */
+
+    int segment_bf_head = 3;             /* eat head *narg\r\n$N\r\nOPERATION\r\n*/
+    int key_nargs_start = 2;             /* eat head *narg\r\n$N\r\nOPERATION\r\n*/
+    if(r->type == MSG_REQ_REDIS_EVAL ){  /* eval need eat more keys */
+      segment_bf_head = 7;
+      key_nargs_start = 4;
+    }
+    for (i = 0; i < segment_bf_head; i++) {                 /* eat *narg\r\n$4\r\nMGET\r\n */
+        for (; *(mbuf->pos) != '\n';) {
+            mbuf->pos++;
+        }
+        mbuf->pos++;
+    }
+
+    tmp_pos = mbuf->pos;
+    tmp_start = mbuf->start;
+
+    //log_error("redis_add_tag_for_keys: keys:%d. ",array_n(r->keys));
+
+    r->frag_id = msg_gen_frag_id();
+    r->nfrag = 0;
+    r->frag_owner = r;
+
+    for (i = 0; i < array_n(r->keys); i++) {        /* for each key */
+        struct msg *sub_msg;
+        struct keypos *kpos = array_get(r->keys, i);
+        //uint32_t idx = msg_backend_idx(r, kpos->start, kpos->end - kpos->start);
+        uint32_t idx = i;
+        if (sub_msgs[idx] == NULL) {
+            sub_msgs[idx] = msg_get(r->owner, r->request, r->redis);
+            if (sub_msgs[idx] == NULL) {
+                nc_free(sub_msgs);
+                return NC_ENOMEM;
+            }
+        }
+        r->frag_seq[i] = sub_msg = sub_msgs[idx];
+
+        sub_msg->narg++;
+	ASSERT(sp->b_prefix_tag && sp->prefix_tag.len>0);
+        uint8_t *tag=sp->prefix_tag.data;
+        status = redis_append_key_with_tag(sub_msg, kpos->start, kpos->end - kpos->start,tag, sp->prefix_tag.len);
+        if (status != NC_OK) {
+            nc_free(sub_msgs);
+            return status;
+        }
+
+    }
+
+    struct msg *sub_msg = sub_msgs[0];
+    
+    //log_error("redis_add_tag_for_keys: head length:%d %d. %s",tmp_pos-mbuf->start,r->narg,tmp_pos);
+    status = msg_prepend_format_head(sub_msg,tmp_start, tmp_pos - tmp_start);
+
+    for (i = 0; i < array_n(r->keys); i++) {     /* prepend mget header, and forward it */
+    sub_msg = sub_msgs[i];
+    sub_msg->type = r->type;
+    sub_msg->frag_id = r->frag_id;
+    sub_msg->frag_owner = r->frag_owner;
+
+    TAILQ_INSERT_TAIL(frag_msgq, sub_msg, m_tqe);
+    }
+    status = redis_copy_bulk(NULL, r); // eat key
+    if (status != NC_OK) {
+	    nc_free(sub_msgs);
+	    return status;
+    }
+    for(i= key_nargs_start ; i< r->narg; i++)
+    {
+	    //log_error("redis_add_tag_for_keys: narg %d .",i);
+	    status = redis_copy_bulk(sub_msg, r);
+	    if (status != NC_OK) {
+		    nc_free(sub_msgs);
+		    return status;
+	    }
+
+	    sub_msg->narg++;
+    }
+   r->nfrag++;
+
+    nc_free(sub_msgs);
+    return NC_OK;
+}
+
+
 rstatus_t
 redis_fragment(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq)
 {
+    struct server_pool *sp = r->owner->owner;
     switch (r->type) {
     case MSG_REQ_REDIS_MGET:
     case MSG_REQ_REDIS_DEL:
@@ -2529,6 +2717,10 @@ redis_fragment(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq)
     case MSG_REQ_REDIS_MSET:
         return redis_fragment_argx(r, ncontinuum, frag_msgq, 2);
     default:
+	// other commands, hack here to add tag to key
+	if(sp->b_prefix_tag){
+		return redis_add_tag_for_keys(r, ncontinuum, frag_msgq, 1);
+	}
         return NC_OK;
     }
 }
@@ -2677,6 +2869,67 @@ redis_post_coalesce_mget(struct msg *request)
     }
 }
 
+static void
+redis_post_coalesce_with_tag(struct msg *request)
+{
+    struct msg *response = request->peer;
+    struct msg *sub_msg;
+    struct mbuf *mbuf;
+    rstatus_t status;
+    int i;
+
+//    status = msg_append(response, (uint8_t *)"+OK\r\n", 5);
+//    if (status != NC_OK) {
+//        response->error = 1;        /* mark this msg as err */
+//        response->err = errno;
+//    }
+    for (i = 0; i < array_n(request->keys); i++) {      /* for each key */
+        sub_msg = request->frag_seq[i]->peer;           /* get it's peer response */
+        //log_error("begin fro redis_post_coalesce_with_tags,%d,%d",request->type,request->integer);
+        if (sub_msg == NULL) {
+            response->owner->err = 1;
+            return;
+        }
+
+	for (mbuf = STAILQ_FIRST(&sub_msg->mhdr);
+			mbuf && mbuf_empty(mbuf);
+			mbuf = STAILQ_FIRST(&sub_msg->mhdr)) {
+
+		mbuf_remove(&sub_msg->mhdr, mbuf);
+		mbuf_put(mbuf);
+	}
+
+	mbuf = STAILQ_FIRST(&sub_msg->mhdr);
+	if (mbuf == NULL) {
+                //log_error("begin no mbuf redis_post_coalesce_with_tags");
+		if(sub_msg->type ==  MSG_RSP_REDIS_INTEGER){
+    		    status = msg_prepend_format(response, ":%d\r\n", sub_msg->integer);
+		}
+		return ;
+	}
+        //log_error("redis_post_coalesce_with_tag: %s", mbuf->start);
+        //log_error("redis_post_coalesce_with_tag rsp type: %d,%d,%d", request->type,sub_msg->type);
+
+	if(sub_msg->type == MSG_RSP_REDIS_INTEGER){
+		if(*(mbuf->start) ==':' && *(mbuf->start+1) == '-'){
+			status = msg_prepend_format(response, ":-%d\r\n", sub_msg->integer);
+		}else{
+			status = msg_prepend_format(response, ":%d\r\n", sub_msg->integer);
+		}
+		sub_msg->mlen -= mbuf_length(mbuf);
+		mbuf_rewind(mbuf);
+	}else{
+		status = redis_copy_bulk(response,sub_msg );
+	}
+        
+        if (status != NC_OK) {
+            //log_error("redis_post_coalesce_with_tag copy bulk failed: %d", status);
+            response->owner->err = 1;
+            return;
+        }
+    }
+}
+
 /*
  * Post-coalesce handler is invoked when the message is a response to
  * the fragmented multi vector request - 'mget' or 'del' and all the
@@ -2687,6 +2940,7 @@ void
 redis_post_coalesce(struct msg *r)
 {
     struct msg *pr = r->peer; /* peer response */
+    struct server_pool *sp = r->owner->owner;
 
     ASSERT(!pr->request);
     ASSERT(r->request && (r->frag_owner == r));
@@ -2703,6 +2957,9 @@ redis_post_coalesce(struct msg *r)
     case MSG_REQ_REDIS_MSET:
         return redis_post_coalesce_mset(r);
     default:
+	if(sp->b_prefix_tag){
+		return redis_post_coalesce_with_tag(r);
+	}
         NOT_REACHED();
     }
 }

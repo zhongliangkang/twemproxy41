@@ -413,12 +413,11 @@ conn_sendv(struct conn *conn, struct array *sendv, size_t nsend)
     		p = (struct iovec *) sendv->elem + ii;
     		 log_debug(LOG_VERB, "ii: %d, sendv on sd %d: len=%d  content=<%.*s>",
     		                  ii, conn->sd, p->iov_len, p->iov_len, (char *)p->iov_base);
-
     	}
         n = nc_writev(conn->sd, sendv->elem, sendv->nelem);
 
-        log_debug(LOG_VERB, "sendv on sd %d %zd of %zu in %"PRIu32" buffers",
-                  conn->sd, n, nsend, sendv->nelem);
+        log_debug(LOG_VERB, "sendv on sd %d %zd of %zu in %"PRIu32" buffers.%s.",
+                  conn->sd, n, nsend, sendv->nelem,(char*)((struct iovec *)sendv->elem)->iov_base);
 
         if (n > 0) {
             if (n < (ssize_t) nsend) {
