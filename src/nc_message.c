@@ -620,7 +620,7 @@ msg_prepend_format_head(struct msg *msg, uint32_t * head, uint32_t len)
 
     msg->mlen += (uint32_t)len;
 
-    loga("append format head: '%d' length: %s.", len,mbuf->start);
+    //loga("append format head: '%d' length: %s.", len,mbuf->start);
     ASSERT(mbuf_size(mbuf) >= 0);
     STAILQ_INSERT_HEAD(&msg->mhdr, mbuf, next);
     return NC_OK;
@@ -1190,7 +1190,7 @@ msg_send(struct context *ctx, struct conn *conn)
     conn->send_ready = 1;
     do {
         msg = conn->send_next(ctx, conn);
-        log_error("msg send. msg: %d, conn->send_ready:%d",msg,conn->send_ready);
+        //log_error("msg send. msg: %d, conn->send_ready:%d",msg,conn->send_ready);
         if (msg == NULL) {
             /* nothing to send */
             return NC_OK;

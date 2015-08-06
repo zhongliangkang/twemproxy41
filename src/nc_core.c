@@ -316,6 +316,7 @@ core_timeout(struct context *ctx)
         }
 
         log_debug(LOG_INFO, "req %"PRIu64" on s %d timedout", msg->id, conn->sd);
+        log_error( "req %"PRIu64" on s %d timedout. now:%d then:%d", msg->id, conn->sd,now,then);
 
         msg_tmo_delete(msg);
         conn->err = ETIMEDOUT;

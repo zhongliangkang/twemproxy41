@@ -263,13 +263,20 @@ redis_argx(struct msg *r)
     case MSG_REQ_REDIS_MGET:
     case MSG_REQ_REDIS_DEL:
         return true;
-    case MSG_REQ_REDIS_MSET:
+
+    case MSG_REQ_REDIS_MSET:   /* mset is special with much key-value pairs */
+        return false;
+
+    case MSG_REQ_REDIS_EVALSHA:  /* donot support evalsha with prefix_tag */
         return false;
 
     default:
         break;
     }
 
+/* Note: for support prefix_tag function, we look all redis commands as vector commands,
+ * so we can add tag to keys without too much modification.
+ * */
     return true;
 }
 
