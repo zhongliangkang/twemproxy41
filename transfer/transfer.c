@@ -68,6 +68,7 @@ int tcp_connect(char *ip, uint16_t port) {
 
 int do_proxy_cmd(int sock, char *cmd, char *buf, int buflen) {
 	int n;
+	trans_log("do_proxy_cmd: %s\n",cmd);
 	n = send(sock, cmd, strlen(cmd), 0);
 	if (n < 0) {
 
@@ -696,8 +697,9 @@ int parse_ipport(const char* ipport, char *ip, uint32_t iplen, uint16_t * port) 
 	return REDIS_OK;
 }
 
-int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
+int connect_redis(redisInfo * redis, char *hostname, uint16_t port, char * password) {
 	struct timeval timeout = { 1, 500000 }; // 1.5 seconds
+	redisReply * reply;
 	redis->rd = redisConnectWithTimeout(hostname, port, timeout);
 	if (redis->rd == NULL || redis->rd->err) {
 		if (redis->rd) {
@@ -709,6 +711,16 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port) {
 		return REDIS_ERR;
 	}
 	trans_log("connect redis %s:%d succ %p\n", hostname, port, (void * )redis->rd);
+	reply = redisCommand(redis->rd,"auth %b", password, strlen(password));
+
+        if (check_reply_status_str(reply,"OK") != REDIS_OK) {
+                log_err("auth failed.");
+                return REDIS_ERR;
+        } else {
+                trans_log("connect auth OK.");
+        }
+	check_reply_and_free(reply);
+
 	redis->port = port;
 	strncpy(redis->host, hostname, sizeof(redis->host));
 	return REDIS_OK;
@@ -767,6 +779,7 @@ int parse_proxylist(char *filename, redisInfo *proxylist) {
 int main(int argc, char **argv) {
 	int status, n;
 	char *poolname, *app;
+	char * old_password, *new_password;
 	char src_host[32], dst_host[32];
 	uint16_t src_port, dst_port;
 	int32_t seg_start, seg_end, i, idx;
@@ -787,10 +800,11 @@ int main(int argc, char **argv) {
 	redisInfo proxylist[100];
 	int proxylist_len = 0;
 
-	if (argc != 8) {
+	if (argc != 10) {
 		printf("transfer: bad arg\n");
-		printf ("usage: transfer twemproxy-list poolname app src dst seg_start seg_end\n\n");
-		printf("example: transfer twemproxy-list nosqlproxy pvz1 1.1.1.1:6379 1.1.1.1:6380 0 210000\n\n");
+		printf ("usage: transfer twemproxy-list poolname app src dst seg_start seg_end old_redis_password new_redis_password\n");
+		printf("if no password for redis, set it as '1'\n\n");
+		printf("example: transfer twemproxy-list nosqlproxy pvz1 1.1.1.1:6379 1.1.1.1:6380 0 210000 old_password new_password \n\nexit\n");
 		exit(1);
 	}
 
@@ -817,6 +831,8 @@ int main(int argc, char **argv) {
 
 	seg_start = atoi(argv[6]);
 	seg_end = atoi(argv[7]);
+	old_password = argv[8];
+	new_password = argv[9];
 
 	if (seg_start < 0 || seg_start >= MODHASH_TOTAL_KEY) {
 		trans_log("transfer: bad seg_start:%s", argv[6]);
@@ -867,7 +883,7 @@ int main(int argc, char **argv) {
 
 	//init redis handle
 	for (i = 0; i < MAX_THREAD_NUM; i++) {
-		status = connect_redis(&task[i].src, src_host, src_port);
+		status = connect_redis(&task[i].src, src_host, src_port,old_password);
 		if (status != REDIS_OK) {
 			task[i].src.rd = NULL;
 			trans_log("[thread %d] conn src redis %s:%d failed\n", i, src_host, src_port);
@@ -876,7 +892,7 @@ int main(int argc, char **argv) {
 
 		//docmd(&task[i].src, "PING");
 
-		status = connect_redis(&task[i].dst, dst_host, dst_port);
+		status = connect_redis(&task[i].dst, dst_host, dst_port,new_password);
 		if (status != REDIS_OK) {
 			task[i].dst.rd = NULL;
 			trans_log("[thread %d] conn src redis %s:%d failed\n", i, dst_host, dst_port);
