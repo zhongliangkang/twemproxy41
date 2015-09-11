@@ -261,6 +261,7 @@ redis_argx(struct msg *r)
 {
     switch (r->type) {
     case MSG_REQ_REDIS_MGET:
+    case MSG_REQ_REDIS_HMGETALL:
     case MSG_REQ_REDIS_DEL:
         return true;
 
@@ -923,6 +924,11 @@ redis_parse_req(struct msg *r)
 
                 if (str8icmp(m, 'g', 'e', 't', 'r', 'a', 'n', 'g', 'e')) {
                     r->type = MSG_REQ_REDIS_GETRANGE;
+                    break;
+                }
+
+                if (str8icmp(m, 'h', 'm', 'g', 'e', 't', 'a', 'l', 'l')) {
+                    r->type = MSG_REQ_REDIS_HMGETALL;
                     break;
                 }
 
@@ -2260,7 +2266,7 @@ redis_pre_coalesce(struct msg *r)
 
     case MSG_RSP_REDIS_MULTIBULK:
         /* only redis 'mget' fragmented request sends back multi-bulk reply */
-        ASSERT(pr->type == MSG_REQ_REDIS_MGET);
+        ASSERT(pr->type == MSG_REQ_REDIS_MGET || pr->type == MSG_REQ_REDIS_HMGETALL);
 
         mbuf = STAILQ_FIRST(&r->mhdr);
         /*
