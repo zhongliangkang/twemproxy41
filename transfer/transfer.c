@@ -111,7 +111,7 @@ void print_reply_info(char *cmd, redisReply * reply) {
 		return;
 	}
 
-	trans_log("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type, reply->elements, reply->str);
+	//trans_log("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type, reply->elements, reply->str);
 
 	switch (reply->type) {
 	case REDIS_REPLY_INTEGER:
@@ -214,12 +214,12 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	//get value of key at src, dump return maybe nil
 	snprintf(cmd, CMD_MAX_LEN, "dump %s", keyname);
 	reply = redisCommand(src->rd, "dump %b", keyname, keyname_len);
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 	if (!reply) {
 		trans_log("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 
 	if (reply->type == REDIS_REPLY_NIL) {
 		trans_log("WARN: get the key %s failed, may be is expired\n", keyname);
@@ -232,7 +232,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname, ttl);
 		reply_set = redisRestoreCommand(dst->rd, keyname, keyname_len, ttl, reply->str, reply->len);
 
-		print_reply_info(setcmd, reply_set);
+		//print_reply_info(setcmd, reply_set);
 		freeReplyObject(reply_set);
 	} else {
 		trans_log("ERR: do %s failed, return not a STRING\n", cmd);
@@ -588,7 +588,7 @@ int transfer_bucket(void * ptr) {
 	snprintf(cmd, CMD_MAX_LEN, "hashkeys %d *", bucketid);
 	keys = redisCommand(src->rd, cmd);
 
-	print_reply_info(cmd, keys);
+	//print_reply_info(cmd, keys);
 	if (!keys) {
 		//todo add a check
 		trans_log("cannot find keys: %d\n", bucketid);
@@ -927,7 +927,7 @@ int main(int argc, char **argv) {
 		char matchbuf_host[20], matchbuf_app[100];
 		int matchbuf_port = 0, matchbuf_status = 0, matchbuf_seg_start = 0 , matchbuf_seg_end = 0;
 
-		n = do_proxy_cmd(sock, add_cmd, add_buf, 1024);
+		n = do_proxy_cmd(sock, add_cmd, add_buf, CMD_MAX_LEN);
 
 		if (n <= 0) {
 			trans_log("check twemproxy <%s:%d> FAIL, return NULL\n", proxylist[i].host, proxylist[i].port + 1000);
