@@ -99,6 +99,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_HEXISTS )                                                                     \
     ACTION( REQ_REDIS_HGET )                                                                        \
     ACTION( REQ_REDIS_HGETALL )                                                                     \
+    ACTION( REQ_REDIS_HMGETALL )                                                                     \
     ACTION( REQ_REDIS_HINCRBY )                                                                     \
     ACTION( REQ_REDIS_HINCRBYFLOAT )                                                                \
     ACTION( REQ_REDIS_HKEYS )                                                                       \
