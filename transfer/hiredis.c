@@ -683,6 +683,19 @@ static int intlen(int i) {
     return len;
 }
 
+static int longlonglen(long long i) {
+    int len = 0;
+    if (i < 0) {
+        len++;
+        i = -i;
+    }
+    do {
+        len++;
+        i /= 10;
+    } while(i);
+    return len;
+}
+
 /* Helper that calculates the bulk length given a certain string length. */
 static size_t bulklen(size_t len) {
     return 1+intlen(len)+2+len+2;
@@ -1231,11 +1244,11 @@ int redisGetReplyFromReader(redisContext *c, void **reply) {
 }
 
 
-void * redisRestoreCommand(redisContext *c, char *key, size_t keylen,  int ttl, char * buf, size_t buflen) {
+void * redisRestoreCommand(redisContext *c, char *key, size_t keylen,  long long ttl, char * buf, size_t buflen) {
 	void *reply;
 	int  n1,n2;
 //	char cmd[1024]; //TODO use sendv to avoid alloc too may data
-	int ttllen = intlen (ttl);
+	int ttllen = longlonglen (ttl);
 	int cmd_set_len = 0;
 /*
  *  struct iovec iov[3];
@@ -1272,7 +1285,7 @@ void * redisRestoreCommand(redisContext *c, char *key, size_t keylen,  int ttl, 
 
 	n1 = sprintf(c->restorecmd.set, "*4\r\n$7\r\nrestore\r\n$%zu\r\n",keylen );
 	memcpy(c->restorecmd.set + n1, key, keylen);
-	n2 = sprintf(c->restorecmd.set + n1 + keylen,  "\r\n$%d\r\n%d\r\n$%zu\r\n", ttllen, ttl, buflen);
+	n2 = sprintf(c->restorecmd.set + n1 + keylen,  "\r\n$%d\r\n%lld\r\n$%zu\r\n", ttllen, ttl, buflen);
 
 
 

@@ -234,7 +234,7 @@ void *redisCommand(redisContext *c, const char *format, ...);
 void *redisCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen);
 
 /* support for restore command */
-void *redisRestoreCommand (redisContext *c, char *key, size_t keylen, int ttl, char * buf, size_t buflen);
+void *redisRestoreCommand (redisContext *c, char *key, size_t keylen, long long ttl, char * buf, size_t buflen);
 
 #ifdef __cplusplus
 }

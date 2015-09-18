@@ -30,7 +30,8 @@ void _my_log(const char *file, int line, const char *fmt, ...) {
 	local = localtime(&t);
 	timestr = asctime(local);
 
-	len += snprintf(buf + len, size - len, "[%.*s] %s:%d (%lu)", (int )strlen(timestr) - 1, timestr, file, line,pthread_self());
+	//len += snprintf(buf + len, size - len, "[%.*s] %s:%d (%lu)", (int )strlen(timestr) - 1, timestr, file, line,pthread_self());
+	len += snprintf(buf + len, size - len, "[%.*s]", (int )strlen(timestr) - 1, timestr);
 
 	va_start(args, fmt);
 	len += vsnprintf(buf + len, size - len, fmt, args);
@@ -111,7 +112,7 @@ void print_reply_info(char *cmd, redisReply * reply) {
 		return;
 	}
 
-	//trans_log("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type, reply->elements, reply->str);
+	trans_log("'%s'\t return len: %d type:%d elems:%zd str:'%s'\n", cmd, reply->len, reply->type, reply->elements, reply->str);
 
 	switch (reply->type) {
 	case REDIS_REPLY_INTEGER:
@@ -129,11 +130,12 @@ void print_reply_info(char *cmd, redisReply * reply) {
 		 }*/
 		break;
 	case REDIS_REPLY_ARRAY:
+		/*
 		if (reply->type == REDIS_REPLY_ARRAY && reply->elements > 0) {
 			for (j = 0; j < reply->elements; j++) {
 				trans_log("[%zd] %s\n", j, reply->element[j]->str);
 			}
-		}
+		}*/
 		break;
 
 	default:
@@ -189,11 +191,11 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	snprintf(cmd, CMD_MAX_LEN, "pttl \"%s\"", keyname);
 	reply = redisCommand(src->rd, "pttl %b", keyname, keyname_len);
 
-	print_reply_info(cmd, reply);
+	//print_reply_info(cmd, reply);
 	// pttl result mayben null
 	if (!reply) {
 		trans_log("ERR: do %s failed\n", cmd);
-		return REDIS_ERR;
+		goto ERROR_UNLOCK_KEY;
 	}
 
 	ttl = reply->integer;
@@ -219,27 +221,33 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		trans_log("ERR: do %s failed\n", cmd);
 		return REDIS_ERR;
 	}
-	//print_reply_info(cmd, reply);
+	print_reply_info(cmd, reply);
 
 	if (reply->type == REDIS_REPLY_NIL) {
 		trans_log("WARN: get the key %s failed, may be is expired\n", keyname);
-	}
-	//set to dst
-	if (reply->type == REDIS_REPLY_STRING) {
+	}else if (reply->type == REDIS_REPLY_STRING) {
 		setcmd = malloc(reply->len + 1024); //1024 is enough
 
 		// maybe very long.
 		snprintf(setcmd, reply->len + 1024, "restore %s %lld ", keyname, ttl);
 		reply_set = redisRestoreCommand(dst->rd, keyname, keyname_len, ttl, reply->str, reply->len);
-
-		//print_reply_info(setcmd, reply_set);
+		
+		if(check_reply_ok(reply_set) == REDIS_OK){
+                     trans_log("restore ok: %s\n", keyname);
+                }else{
+		     trans_log("ERR: restore failed: %s\n", keyname);
+		     print_reply_info(setcmd, reply_set);
+	             goto ERROR_UNLOCK_KEY;
+		}
 		freeReplyObject(reply_set);
 	} else {
-		trans_log("ERR: do %s failed, return not a STRING\n", cmd);
+		trans_log("ERR: dump failed: %s , return not a STRING\n", cmd);
+		goto ERROR_UNLOCK_KEY;
 	}
 
 	if (setcmd)
 		free(setcmd);
+
 	if (reply)
 		freeReplyObject(reply);
 
@@ -254,7 +262,7 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 		trans_log("ERR: %s failed\n", cmd);
 		goto ERROR_UNLOCK_KEY;
 	} else if (check_reply_ok_and_free(dst, cmd, reply) != REDIS_OK) {
-		trans_log("ERR: dst lockkey %s failed\n", cmd);
+		trans_log("ERR: dst unlockkey %s failed\n", cmd);
 		goto ERROR_UNLOCK_KEY;
 	}
 
@@ -264,8 +272,10 @@ int trans_string(redisInfo *src, redisInfo *dst, char * keyname, int keyname_len
 	reply = redisCommand(src->rd, "rctransendkey %b", keyname, keyname_len);
 	if (!reply) {
 		trans_log("ERR: %s failed\n", cmd);
+		goto ERROR_UNLOCK_KEY;
 	} else if (check_reply_ok_and_free(src, cmd, reply) != REDIS_OK) {
-		trans_log("ERR: src lockkey %s failed\n", cmd);
+		trans_log("ERR: src transendkey failed:'%s'\n", cmd);
+		//maybe the key is deleted just now. transendkey doesnot affect transfer.
 	}
 
 	return REDIS_OK;
@@ -335,7 +345,12 @@ void check_reply_and_free(redisReply * reply) {
 
 int check_reply_ok_and_free(redisInfo *ri, const char * cmd, redisReply * reply) {
 	int ret = check_reply_ok(reply);
-	print_reply_info_with_redisinfo(ri, cmd, reply);
+
+	// if not OK, print
+	if( ret != REDIS_OK){
+		print_reply_info(cmd, reply);
+	}
+
 	check_reply_and_free(reply);
 	return ret;
 }
@@ -480,6 +495,7 @@ int transfer_bucket(void * ptr) {
 	cmd = malloc(CMD_MAX_LEN);
 	if (! cmd) {
 		trans_log("malloc %d bytes error\n", CMD_MAX_LEN);
+		goto err;
 	}
 
 	trans_log("transfer_bucket src %s:%d dst %s:%d bucket %d \n", src->host, src->port, dst->host, dst->port, bucketid);
@@ -487,12 +503,12 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(src->rd, "rctransserver out");
 
 	if (check_reply_ok_and_free(src, "rctransserver out", repl) != REDIS_OK) {
-		log_info("rctransserver out");
+		log_info("rctransserver out error");
 		goto err;
 	}
 
 	repl = redisCommand(dst->rd, "rctransserver in");
-	if (check_reply_ok_and_free(dst, "rctransserver in", repl) != REDIS_OK) {
+	if (!repl || check_reply_ok_and_free(dst, "rctransserver in", repl) != REDIS_OK) {
 		trans_log("trans in failed: %d\n", bucketid);
 		log_info("rctransserver in");
 		goto err;
@@ -502,9 +518,9 @@ int transfer_bucket(void * ptr) {
 
 	repl = redisCommand(src->rd, cmd);
 
-	if (check_reply_status_str(repl, bucket_transfering) == REDIS_OK) {
+	if (repl && check_reply_status_str(repl, bucket_transfering) == REDIS_OK) {
 		// bucket is locking in src. how to do?
-		log_info("bucket is locking in src");
+		//log_info("bucket is locking in src");
 		check_reply_and_free(repl);
 	} else if (check_reply_ok_and_free(src, cmd, repl) != REDIS_OK) {
 		trans_log("transbegin src failed: %d\n", bucketid);
@@ -516,7 +532,7 @@ int transfer_bucket(void * ptr) {
 	repl = redisCommand(dst->rd, cmd);
 	if (check_reply_status_str(repl, bucket_transfering) == REDIS_OK) {
 		// bucket is locking in src. how to do?
-		log_info("bucket is locking in dst");
+		//log_info("bucket is locking in dst");
 		check_reply_and_free(repl);
 	} else if (check_reply_ok_and_free(dst, cmd, repl) != REDIS_OK) {
 		trans_log("transbegin dst failed: %d\n", bucketid);
@@ -588,7 +604,7 @@ int transfer_bucket(void * ptr) {
 	snprintf(cmd, CMD_MAX_LEN, "hashkeys %d *", bucketid);
 	keys = redisCommand(src->rd, cmd);
 
-	//print_reply_info(cmd, keys);
+	print_reply_info(cmd, keys);
 	if (!keys) {
 		//todo add a check
 		trans_log("cannot find keys: %d\n", bucketid);
@@ -608,6 +624,7 @@ int transfer_bucket(void * ptr) {
 		} else {
 			trans_log("trans string failed: %d\n", bucketid);
 			t->bucket->key_fail++;
+			goto err;
 		}
 	}
 
