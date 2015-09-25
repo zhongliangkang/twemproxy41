@@ -6,8 +6,8 @@
 #include <assert.h>
 #include <transfer.h>
 
-#define CMD_MAX_LEN  100000
-#define LOG_MAX_LEN 102400
+#define CMD_MAX_LEN  1000000
+#define LOG_MAX_LEN 1024000
 #define MAX_THREAD_NUM 100
 
 uint32_t g_job_thread_num = 100;
