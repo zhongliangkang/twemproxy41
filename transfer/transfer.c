@@ -69,6 +69,7 @@ int tcp_connect(char *ip, uint16_t port) {
 
 int do_proxy_cmd(int sock, char *cmd, char *buf, int buflen) {
 	int n;
+	int n_recved;
 	trans_log("do_proxy_cmd: %s\n",cmd);
 	n = send(sock, cmd, strlen(cmd), 0);
 	if (n < 0) {
@@ -79,9 +80,22 @@ int do_proxy_cmd(int sock, char *cmd, char *buf, int buflen) {
 
 	}
 
-	n = recv(sock, buf, buflen, 0);
-	buf[n] = '\0';
-	return n;
+	n_recved = 0;
+	while( n_recved < buflen ){
+		n = recv(sock, buf+n_recved, buflen, 0);
+		if(n <= 0){
+			break;
+		}
+		n_recved += n;
+	}
+	
+	if( n_recved >= buflen) {
+		trans_log("ERROR: too much data recved.");
+		buf[buflen-1] = '\0';
+	}else{
+		buf[n_recved] = '\0';
+	}
+	return n_recved;
 }
 
 /*
@@ -987,6 +1001,10 @@ int main(int argc, char **argv) {
 			trans_log("check twemproxy <%s:%d> OK\n", proxylist[i].host, proxylist[i].port + 1000);
 		}
 	}
+
+	//for test only
+	//trans_log("test program.exit\n");
+	//goto end;
 
 	//send_twemproxy_ add command
 	for (i = 0; i < proxylist_len; i++) {
