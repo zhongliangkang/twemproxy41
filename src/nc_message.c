@@ -278,6 +278,7 @@ done:
 
     msg->redirect = 0;
     msg->transfer_status = 0;
+    msg->n_hmgetall_result = 0;
 
     return msg;
 }

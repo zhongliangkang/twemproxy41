@@ -2280,7 +2280,29 @@ redis_pre_coalesce(struct msg *r)
 
         r->narg_end += CRLF_LEN;
         r->mlen -= (uint32_t)(r->narg_end - r->narg_start);
-        mbuf->pos = r->narg_end;
+
+        if(pr->type == MSG_REQ_REDIS_MGET){
+            mbuf->pos = r->narg_end;
+        }else if(pr->type == MSG_REQ_REDIS_HMGETALL){
+            uint8_t *p;
+            uint32_t len = 0;
+            p = r->narg_start;
+            ASSERT(p[0] == '*');
+            p++;
+
+            if(p[0] == '-' && p[1] == '1'){
+                r->n_hmgetall_result = 0;
+            }else{
+                    for(;p < r->narg_end && isdigit(*p); p++){
+                            len = 10*len + (uint32_t)(*p - '0');
+                    }
+                    r->n_hmgetall_result = len;
+            }
+            /* move ahead to narg_end */
+            mbuf->pos = r->narg_end;
+        }else{
+            NOT_REACHED();
+        }
 
         break;
 
@@ -2505,6 +2527,9 @@ redis_fragment_argx(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msg
         } else if (r->type == MSG_REQ_REDIS_MSET) {
             status = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmset\r\n",
                                         sub_msg->narg + 1);
+        } else if (r->type == MSG_REQ_REDIS_HMGETALL) {
+            status = msg_prepend_format(sub_msg, "*%d\r\n$8\r\nhmgetall\r\n",
+                                        sub_msg->narg + 1);
         } else {
             NOT_REACHED();
         }
@@ -2530,6 +2555,7 @@ redis_fragment(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq)
 {
     switch (r->type) {
     case MSG_REQ_REDIS_MGET:
+    case MSG_REQ_REDIS_HMGETALL:
     case MSG_REQ_REDIS_DEL:
         return redis_fragment_argx(r, ncontinuum, frag_msgq, 1);
     case MSG_REQ_REDIS_MSET:
@@ -2683,6 +2709,53 @@ redis_post_coalesce_mget(struct msg *request)
     }
 }
 
+static void
+redis_post_coalesce_hmgetall(struct msg *request)
+{
+    struct msg *response = request->peer;
+    struct msg *sub_msg;
+    rstatus_t status;
+    uint32_t i,j;
+    uint32_t cnt = 0;
+
+    for(i = 0;i <array_n(request->keys); i++) {
+        sub_msg = request->frag_seq[i]->peer;           /* get it's peer response */
+        if (sub_msg == NULL) {
+            msg_prepend_format(response, "*%d\r\n", request->narg - 1);
+            response->owner->err = 1;
+            return;
+        }
+        
+        cnt += sub_msg->n_hmgetall_result;
+    }
+
+    status = msg_prepend_format(response, "*%d\r\n", cnt);
+    if (status != NC_OK) {
+        /*
+         * the fragments is still in c_conn->omsg_q, we have to discard all of them,
+         * we just close the conn here
+         */
+        response->owner->err = 1;
+        return;
+    }
+
+    for (i = 0; i < array_n(request->keys); i++) {      /* for each key */
+        sub_msg = request->frag_seq[i]->peer;           /* get it's peer response */
+        if (sub_msg == NULL) {
+            response->owner->err = 1;
+            return;
+        }
+        
+        for(j=0;j<sub_msg->n_hmgetall_result;j++){
+                status = redis_copy_bulk(response, sub_msg);
+                if (status != NC_OK) {
+                        response->owner->err = 1;
+                        return;
+                }
+        }
+    }
+}
+
 /*
  * Post-coalesce handler is invoked when the message is a response to
  * the fragmented multi vector request - 'mget' or 'del' and all the
@@ -2704,6 +2777,8 @@ redis_post_coalesce(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_MGET:
         return redis_post_coalesce_mget(r);
+    case MSG_REQ_REDIS_HMGETALL:
+        return redis_post_coalesce_hmgetall(r);
     case MSG_REQ_REDIS_DEL:
         return redis_post_coalesce_del(r);
     case MSG_REQ_REDIS_MSET:

@@ -282,8 +282,7 @@ struct msg {
     unsigned             transfer_status:2; /* request: the key is in trans?*/
     unsigned             redirect:4;        /* request: redirect? */
     unsigned             redirect_type:1;   /* request: redirect_type 0:key redirect, 1:bucket redirect */
-
-
+    uint32_t             n_hmgetall_result; /* used for store hmgetall result number */
 };
 
 TAILQ_HEAD(msg_tqh, msg);
