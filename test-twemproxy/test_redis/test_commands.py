@@ -13,17 +13,6 @@ def test_linsert():
     rst = r.lrange('mylist', 0, -1)
     assert(rst == ['Hello', 'There', 'World'])
 
-def test_lpush_lrange():
-    r = getconn()
-
-    vals = ['vvv-%s' % i for i in range(10) ]
-    assert([] == r.lrange('mylist', 0, -1))
-
-    r.lpush('mylist', *vals)
-    rst = r.lrange('mylist', 0, -1)
-
-    assert(10 == len(rst))
-
 def test_hscan():
     r = getconn()
   
