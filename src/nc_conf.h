@@ -89,6 +89,7 @@ struct conf_pool {
     struct string      name;                  /* pool name (root node) */
     struct string      password;              /* password for twemproxy access */
     struct string      redis_password;        /* password for access redis backends */
+    struct string      prefix_tag;            /* prefix tag for each keys from this twemproxy */
     struct conf_listen listen;                /* listen: */
     hash_type_t        hash;                  /* hash: */
     struct string      hash_tag;              /* hash_tag: */

@@ -174,6 +174,7 @@ struct server_pool {
 
     struct string      password;             /* pool password */
     struct string      redis_password;       /* pool password for access redis backends */
+    struct string      prefix_tag;           /* prefix tag for each keys from this twemproxy */
 
     unsigned           auto_eject_hosts:1;   /* auto_eject_hosts? */
     unsigned           preconnect:1;         /* preconnect? */
@@ -182,6 +183,7 @@ struct server_pool {
 
     unsigned           b_pass:1;             /* if access twemproxy need password? */
     unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
+    unsigned           b_prefix_tag:1;       /* if this twemproxy with prefix_tag*/
     unsigned           status:2;             /* 0:nouse, 1:notrans ,2:transing, 3:trans done */
 
 

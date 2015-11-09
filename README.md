@@ -13,7 +13,9 @@ To build nutcracker from [distribution tarball](http://code.google.com/p/twempro
 
 To build nutcracker from [distribution tarball](http://code.google.com/p/twemproxy/downloads/list) in _debug mode_:
 
-    $ CFLAGS="-ggdb3 -O0" ./configure --enable-debug=full
+    /************** Compile twemproxy by these Commands bellow for production ENV **************/
+
+    $ CFLAGS="-ggdb3 -O3 -fno-strict-aliasing " ./configure --enable-debug=full
     $ make
     $ sudo make install
 

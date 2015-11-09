@@ -607,6 +607,26 @@ msg_prepend_format(struct msg *msg, const char *fmt, ...)
     return NC_OK;
 }
 
+rstatus_t
+msg_prepend_format_head(struct msg *msg, uint32_t * head, uint32_t len)
+{
+    struct mbuf *mbuf;
+
+    mbuf = mbuf_get();
+    if (mbuf == NULL) {
+        return NC_ENOMEM;
+    }
+
+    mbuf_copy(mbuf, head, len);
+
+    msg->mlen += (uint32_t)len;
+
+    //loga("append format head: '%d' length: %s.", len,mbuf->start);
+    ASSERT(mbuf_size(mbuf) >= 0);
+    STAILQ_INSERT_HEAD(&msg->mhdr, mbuf, next);
+    return NC_OK;
+}
+
 inline uint64_t
 msg_gen_frag_id(void)
 {
@@ -1066,11 +1086,9 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
                 continue;
             }
 
-            log_debug(LOG_VERB, "concat mbuf %p of msg:%p", mbuf, msg);
-
-
 
             mlen = mbuf_length(mbuf);
+            log_debug(LOG_VERB, "concat mbuf %p of msg:%p, <%.*s>", mbuf, msg,mlen,mbuf);
             if ((nsend + mlen) > limit) {
                 mlen = limit - nsend;
             }
@@ -1173,6 +1191,7 @@ msg_send(struct context *ctx, struct conn *conn)
     conn->send_ready = 1;
     do {
         msg = conn->send_next(ctx, conn);
+        //log_error("msg send. msg: %d, conn->send_ready:%d",msg,conn->send_ready);
         if (msg == NULL) {
             /* nothing to send */
             return NC_OK;
