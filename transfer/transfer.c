@@ -30,8 +30,8 @@ void _my_log(const char *file, int line, const char *fmt, ...) {
 	local = localtime(&t);
 	timestr = asctime(local);
 
-	//len += snprintf(buf + len, size - len, "[%.*s] %s:%d (%lu)", (int )strlen(timestr) - 1, timestr, file, line,pthread_self());
-	len += snprintf(buf + len, size - len, "[%.*s]", (int )strlen(timestr) - 1, timestr);
+	len += snprintf(buf + len, size - len, "[%.*s] %s:%d (%lu)", (int )strlen(timestr) - 1, timestr, file, line,pthread_self());
+	//len += snprintf(buf + len, size - len, "[%.*s]", (int )strlen(timestr) - 1, timestr);
 
 	va_start(args, fmt);
 	len += vsnprintf(buf + len, size - len, fmt, args);
@@ -742,16 +742,17 @@ int connect_redis(redisInfo * redis, char *hostname, uint16_t port, char * passw
 		return REDIS_ERR;
 	}
 	trans_log("connect redis %s:%d succ %p\n", hostname, port, (void * )redis->rd);
-	reply = redisCommand(redis->rd,"auth %b", password, strlen(password));
+    if(strlen(password) >0){
+        reply = redisCommand(redis->rd,"auth %b", password, strlen(password));
 
         if (check_reply_status_str(reply,"OK") != REDIS_OK) {
-                log_err("auth failed.");
-                return REDIS_ERR;
+            log_err("auth failed.");
+            return REDIS_ERR;
         } else {
-                trans_log("connect auth OK.");
+            trans_log("connect auth OK.");
         }
-	check_reply_and_free(reply);
-
+        check_reply_and_free(reply);
+    }
 	redis->port = port;
 	strncpy(redis->host, hostname, sizeof(redis->host));
 	return REDIS_OK;
