@@ -106,7 +106,7 @@ mbuf_free(struct mbuf *mbuf)
 {
     uint8_t *buf;
 
-    log_debug(LOG_VVERB, "put mbuf %p len %d", mbuf, mbuf->last - mbuf->pos);
+    log_debug(LOG_VVERB, "free mbuf %p len %d", mbuf, mbuf->last - mbuf->pos);
 
     ASSERT(STAILQ_NEXT(mbuf, next) == NULL);
     ASSERT(mbuf->magic == MBUF_MAGIC);
@@ -125,6 +125,8 @@ mbuf_put(struct mbuf *mbuf)
 
     nfree_mbufq++;
     STAILQ_INSERT_HEAD(&free_mbufq, mbuf, next);
+
+//    mbuf_deinit_100();
 }
 
 /*
@@ -283,3 +285,28 @@ mbuf_deinit(void)
     }
     ASSERT(nfree_mbufq == 0);
 }
+
+void
+mbuf_deinit_100 (void)
+{
+	int max = 100;
+	int c = 0;
+	int nfree = nfree_mbufq;
+	if (nfree <  1024*1024) {
+		return;
+	}
+
+	log_debug(LOG_VVERB, "mbuf_deinit_100 start nfree_mbufq = %zu", nfree);
+
+
+    while (++c < max && !STAILQ_EMPTY(&free_mbufq)) {
+        struct mbuf *mbuf = STAILQ_FIRST(&free_mbufq);
+        mbuf_remove(&free_mbufq, mbuf);
+        mbuf_free(mbuf);
+        nfree_mbufq--;
+    }
+
+    log_debug(LOG_VVERB, "mbuf_deinit_100 end nfree_mbufq = %zu", nfree_mbufq);
+
+}
+

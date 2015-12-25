@@ -228,4 +228,8 @@ rstatus_t stats_create_buf(struct stats *st);
 
 rstatus_t stats_pool_add_server (struct server_pool *pool, uint32_t newsvr_idx);
 rstatus_t stats_server_add_one (struct array *stats_server, struct array *server, uint32_t newsvr_idx);
+
+rstatus_t stats_pool_change_server_name(struct server_pool *pool, uint32_t idx, char *name);
+rstatus_t stats_server_change_name(struct array *stats_server,  uint32_t idx, char *name);
+
 #endif

@@ -2095,7 +2095,7 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
 
 			//log_debug(LOG_VERB, "info: old: %s:%d, new: %s:%d\n", old_ip, old_port, new_ip, new_port);
 
-			// return fail the  new instance   already exists
+			// return fail the  new instance  already exists
 			struct server *svr;
 			for (j = 0; j < m; j++) {
 				svr = array_get(&sp->server, j);
@@ -2181,9 +2181,14 @@ int nc_server_change_instance(void *sp_a, char *sp_name, char *old_instance, cha
 					svr->mif.new_pname = new_pname;
 					svr->reload_svr = true;
 
+					stats_pool_change_server_name(sp, j, svr->mif.new_name);
+
 					pthread_mutex_unlock(&svr->mutex);
 
 				}
+
+
+
 			}
 
 			if (change_server_num > 0) {
