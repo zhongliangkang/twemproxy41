@@ -217,6 +217,49 @@ stats_server_map(struct array *stats_server, struct array *server)
     return NC_OK;
 }
 
+
+rstatus_t stats_pool_change_server_name(struct server_pool *pool, uint32_t idx, char* name) {
+	rstatus_t status;
+	struct stats_pool *stp;
+
+	stp = array_get(&pool->ctx->stats->current, pool->idx);
+	status = stats_server_change_name(&stp->server, idx, name);
+	if (NC_OK != status) {
+		return status;
+	}
+
+	stp = array_get(&pool->ctx->stats->shadow, pool->idx);
+	status = stats_server_change_name(&stp->server, idx, name);
+	if (NC_OK != status) {
+		//FIXME: deinit current
+		return status;
+	}
+
+	stp = array_get(&pool->ctx->stats->sum, pool->idx);
+	status = stats_server_change_name(&stp->server, idx, name);
+	if (NC_OK != status) {
+		//FIXME: deinit current\shadow
+		return status;
+	}
+
+	stats_destroy_buf(pool->ctx->stats);
+	stats_create_buf(pool->ctx->stats);
+
+
+	return NC_OK;
+}
+
+
+rstatus_t stats_server_change_name(struct array *stats_server,  uint32_t idx, char *name) {
+	rstatus_t status;
+	struct stats_pool *stp;
+	struct stats_server *s = array_get(stats_server, idx);
+	s->name.data = (uint8_t*)name;
+	s->name.len = (uint32_t)nc_strlen(name);
+	log_error ("stats_server_change_name %d %s",  idx, name);
+	return NC_OK;
+}
+
 rstatus_t stats_pool_add_server(struct server_pool *pool, uint32_t newsvr_idx) {
 	rstatus_t status;
 	struct stats_pool *stp;
