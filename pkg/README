@@ -1,0 +1,6 @@
+twemproxy-0.2.4-v2 : 
+	support mset. nc version: 0.4.1 
+	avoid crash after change server if there are some event from old redis 
+twemproxy-0.2.4-v3 :  @2015.11.3
+	support hmgetall,bug fix
+
