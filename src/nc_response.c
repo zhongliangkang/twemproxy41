@@ -358,5 +358,9 @@ rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg)
     /* dequeue request from client outq */
     conn->dequeue_outq(ctx, conn, pmsg);
 
+    int64_t t =  ustime();
+    log_debug(LOG_ERR, "recv_time %llu resp_time %llu ms %llu", pmsg->recv_time, t, t- pmsg->recv_time);
+
+
     req_put(pmsg);
 }

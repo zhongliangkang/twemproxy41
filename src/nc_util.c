@@ -31,6 +31,9 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+
+
+
 #include <nc_core.h>
 
 #ifdef NC_HAVE_BACKTRACE
@@ -658,4 +661,20 @@ void nc_trim(char *s){
     nc_rtrim(s);
 }
 
+
+/* Return the UNIX time in microseconds */
+int64_t ustime(void) {
+    struct timeval tv;
+    int64_t ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((int64_t)tv.tv_sec)*1000000;
+    ust += (int64_t)tv.tv_usec;
+    return ust;
+}
+
+/* Return the UNIX time in milliseconds */
+int64_t mstime(void) {
+    return ustime()/1000;
+}
 

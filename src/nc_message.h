@@ -283,6 +283,8 @@ struct msg {
     unsigned             redirect:4;        /* request: redirect? */
     unsigned             redirect_type:1;   /* request: redirect_type 0:key redirect, 1:bucket redirect */
     uint32_t             n_hmgetall_result; /* used for store hmgetall result number */
+    int64_t              recv_time;        /* the time of msg receive from client */
+
 };
 
 TAILQ_HEAD(msg_tqh, msg);

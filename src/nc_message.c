@@ -296,6 +296,7 @@ msg_get(struct conn *conn, bool request, bool redis)
     msg->owner = conn;
     msg->request = request ? 1 : 0;
     msg->redis = redis ? 1 : 0;
+    msg->recv_time = 0;
 
     if (redis) {
         if (request) {
