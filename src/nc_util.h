@@ -217,7 +217,4 @@ void nc_ltrim(char *str);
 void nc_rtrim(char *str);
 void nc_trim(char *str);
 
-int64_t ustime(void);
-int64_t mstime(void);
-
 #endif

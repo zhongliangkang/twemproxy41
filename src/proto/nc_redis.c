@@ -20,6 +20,8 @@
 
 #include <nc_core.h>
 #include <nc_proto.h>
+#include <sds.h>
+
 
 /*
  * Return true, if the redis command take no key, otherwise
@@ -31,6 +33,7 @@ redis_argz(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_PING:
     case MSG_REQ_REDIS_QUIT:
+    case MSG_REQ_NC_STAT:
         return true;
 
     default:
@@ -125,6 +128,7 @@ redis_arg1(struct msg *r)
     case MSG_REQ_REDIS_ZRANK:
     case MSG_REQ_REDIS_ZREVRANK:
     case MSG_REQ_REDIS_ZSCORE:
+
 
 
         return true;
@@ -655,6 +659,14 @@ redis_parse_req(struct msg *r)
                 if (str4icmp(m, 'q', 'u', 'i', 't')) {
                     r->type = MSG_REQ_REDIS_QUIT;
                     r->quit = 1;
+                    break;
+                }
+
+
+
+                if (str4icmp(m, 'i', 'n', 'f', 'o')) {
+                    r->type = MSG_REQ_NC_STAT;
+                    r->noforward = 1;
                     break;
                 }
 
@@ -1672,40 +1684,49 @@ enomem:
 REQ_INLINE:
 
     inline_p = b->pos;
-    ich = *inline_p;
-    /* skip spaces */
-    while( ich == ' ') { inline_p++; ich = *inline_p;  }
+	ich = *inline_p;
+	/* skip spaces */
+	while (ich == ' ') {
+		inline_p++;
+		ich = *inline_p;
+	}
 
-    /* maybe this is a req REQ_INLINE */
-    if(inline_p  && strncasecmp(inline_p,"auth ",4) == 0){
-            /* get the space after auth */
-            ich = *(inline_p+=4);
-            /* skip spaces */
-       	    while( ich == ' ') { inline_p++; ich = *inline_p;  }
-            mkp = array_push(r->keys);
-            if(mkp == NULL){ 
-               goto  enomem;
-            }
-            if( *inline_p == '"' || *inline_p == '\'' ) inline_p ++;  /* password with " begin */
-            mkp->start = inline_p;
-       	    while( *inline_p != CR && inline_p < b->last) { inline_p++; }
-	    if( *inline_p == CR && (*(inline_p-1) == '"'||*(inline_p-1) == '\'')){
-		mkp->end = inline_p-1;
-            }else{
-		mkp->end = inline_p;
-            }
+	/* maybe this is a req REQ_INLINE */
+	if (inline_p && strncasecmp((const char *) inline_p, "auth", 4) == 0) {
+		/* get the space after auth */
+		ich = *(inline_p += 4);
+		/* skip spaces */
+		while (ich == ' ') {
+			inline_p++;
+			ich = *inline_p;
+		}
+		mkp = array_push(r->keys);
+		if (mkp == NULL) {
+			goto enomem;
+		}
+		if (*inline_p == '"' || *inline_p == '\'')
+			inline_p++; /* password with " begin */
+		mkp->start = inline_p;
+		while (*inline_p != CR && inline_p < b->last) {
+			inline_p++;
+		}
+		if (*inline_p == CR && (*(inline_p - 1) == '"' || *(inline_p - 1) == '\'')) {
+			mkp->end = inline_p - 1;
+		} else {
+			mkp->end = inline_p;
+		}
 
-	    log_error("inline auth commond: '%s'",mkp->start);
+		log_error("inline auth commond: '%s'", mkp->start);
 
-            r->pos = b->last;
-	    r->type = MSG_REQ_REDIS_INLINE_AUTH;
-	    r->result = MSG_PARSE_OK;
-            r->state = SW_START;
-	    r->noforward = 1;
-    }else{
-	    goto error;
-    }
-    return;
+		r->pos = b->last;
+		r->type = MSG_REQ_REDIS_INLINE_AUTH;
+		r->result = MSG_PARSE_OK;
+		r->state = SW_START;
+		r->noforward = 1;
+	} else {
+		goto error;
+	}
+	return;
 
 error:
     r->result = MSG_PARSE_ERROR;
@@ -2735,7 +2756,7 @@ redis_add_tag_for_keys(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_
 
 	    sub_msg->narg++;
     }
-   r->nfrag++;
+    r->nfrag++;
 
     nc_free(sub_msgs);
     return NC_OK;
@@ -2765,13 +2786,15 @@ redis_fragment(struct msg *r, uint32_t ncontinuum, struct msg_tqh *frag_msgq)
 rstatus_t redis_reply(struct msg *r) {
 	struct msg *response = r->peer;
 	size_t key_len;
-	uint8_t *key;
+	//uint8_t *key;
 	struct server_pool *sp;
 	struct server *server;
 	struct keypos *kpos;
 	uint32_t hash, slot;
 	char buf[64];
-
+	rstatus_t status;
+	sds info, info2;
+	struct string *req_type;
 	const struct string msg1 = string ("-ERR Client sent AUTH, but no password is set\r\n");
 	const struct string msg_noauth = string ("-NOAUTH Authentication required.\r\n");
 
@@ -2782,6 +2805,41 @@ rstatus_t redis_reply(struct msg *r) {
 	}
 
 	switch (r->type) {
+	case MSG_REQ_NC_STAT:
+		info = sdsempty();
+		info = sdscatprintf(info, "stat of twemproxy\r\n");
+		sp = r->owner->owner;
+
+		for (int j = 0; j < MSG_MAX_MSG; j++) {
+			struct reqCommand * c = sp->ctx->req_stats + j;
+			if (!c->calls)
+				continue;
+			req_type = msg_type_string(j);
+			info = sdscatprintf(info, "cmdstat_%.*s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n", req_type->len, req_type->data, c->calls, c->microseconds,
+					(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
+
+
+		}
+
+
+		for (int j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
+			struct reqCommand * c = sp->ctx->range_stats + j;
+			if (!c->calls)
+				continue;
+
+			info = sdscatprintf(info, "cmdstat_ranger %d-%d:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",c->kus_start,c->kus_end, c->calls, c->microseconds,
+					(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
+
+
+		}
+
+		info2 = sdscatprintf(sdsempty(), "$%d\r\n%s\r\n", sdslen(info), info);
+		status = msg_append(response, (uint8_t *)info2, sdslen(info2));
+		printf ("%d %s", sdslen(info), info);
+		sdsfree(info);
+		sdsfree(info2);
+		return status;
+
 	case MSG_REQ_REDIS_PING:
 		return msg_append(response, (uint8_t *) "+PONG\r\n", 7);
 
@@ -2799,7 +2857,7 @@ rstatus_t redis_reply(struct msg *r) {
 			return msg_append(response, (uint8_t *) msg1.data, msg1.len);
 		}
 
-		if (sp->password.len == key_len && 0 == strncmp(sp->password.data, kpos->start, key_len)) {
+		if (sp->password.len == key_len && 0 == strncmp((const char*) sp->password.data, (const char*) kpos->start, key_len)) {
 			r->owner->authed = 1;
 			return msg_append(response, (uint8_t *) "+OK\r\n", 5);
 
@@ -2815,7 +2873,7 @@ rstatus_t redis_reply(struct msg *r) {
 		kpos = array_get(r->keys, 0);
 		key_len = (uint32_t) (kpos->end - kpos->start);
 		log_error("inline result: %s,%d",kpos->start,key_len);
-		if (sp->password.len == key_len && 0 == strncmp(sp->password.data, kpos->start, key_len)) {
+		if (sp->password.len == key_len && 0 == strncmp((const char*)sp->password.data, (const char *)kpos->start, key_len)) {
 			r->owner->authed = 1;
 			return msg_append(response, (uint8_t *) "+OK\r\n", 5);
 

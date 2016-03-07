@@ -798,6 +798,8 @@ req_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
         return;
     }
 
+    msg->recv_usec = nc_usec_now();
+
     if (msg->noforward) {
         status = req_make_reply(ctx, conn, msg);
         if (status != NC_OK) {
@@ -818,7 +820,7 @@ req_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
 
         return;
     }
-    msg->recv_time = ustime();
+
     /* do fragment */
     pool = conn->owner;
     TAILQ_INIT(&frag_msgq);

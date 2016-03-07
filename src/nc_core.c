@@ -51,6 +51,7 @@ core_ctx_create(struct instance *nci)
     rstatus_t status;
     struct context *ctx;
     uint32_t n,i,j,m;
+    struct string *req_type;
 
     ctx = nc_alloc(sizeof(*ctx));
     if (ctx == NULL) {
@@ -66,6 +67,7 @@ core_ctx_create(struct instance *nci)
     ctx->max_nfd = 0;
     ctx->max_ncconn = 0;
     ctx->max_nsconn = 0;
+    ctx->slowms = 0;
 
     /* parse and create configuration */
     ctx->cf = conf_create(nci->conf_filename);
@@ -92,6 +94,24 @@ core_ctx_create(struct instance *nci)
         conf_destroy(ctx->cf);
         nc_free(ctx);
         return NULL;
+    }
+
+
+    for (i=0;i<NC_REQ_STAT_RANGER_MAX;i++) {
+    	ctx->range_stats[i].kus_start =  (int32_t)  1000 *( 1<< (i-1));
+    	ctx->range_stats[i].kus_end   =  (int32_t)  1000 *( 1<< (i));
+
+       	log_error("set range_stats %d %d %d", i, ctx->range_stats[i].kus_start, ctx->range_stats[i].kus_end);
+    	ctx->range_stats[i].microseconds = 0;
+    	ctx->range_stats[i].calls = 0;
+    }
+
+    ctx->req_stats = nc_alloc(sizeof(struct reqCommand) * MSG_MAX_MSG);
+    for (i=0;i<MSG_MAX_MSG;i++) {
+    	ctx->req_stats[i].microseconds = 0;
+    	ctx->req_stats[i].calls = 0;
+    	req_type = msg_type_string(i);
+    	//log_error("set req_stats %d %.*s", i, req_type->len, req_type->data );
     }
 
 

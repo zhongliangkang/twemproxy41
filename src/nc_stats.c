@@ -1484,3 +1484,44 @@ _stats_server_set_ts(struct context *ctx, struct server *server,
     log_debug(LOG_VVVERB, "set ts field '%.*s' to %"PRId64"", stm->name.len,
               stm->name.data, stm->value.timestamp);
 }
+
+void
+stat_req_incr  (struct context *ctx, struct msg *pmsg)
+{
+	int32_t seg;
+	int64_t t, diff;
+	struct string *req_type = NULL;
+
+	if (pmsg->recv_usec == 0) {
+		 return;
+	 }
+	 t =  nc_usec_now();
+     diff =   t- pmsg->recv_usec;
+
+     ctx->req_stats[pmsg->type].calls ++;
+	 ctx->req_stats[pmsg->type].microseconds += ( diff );
+
+	 if (diff < 0) {
+		 log_error ("get bad stat from client 1.1.1.1:xxxx msg_type mget");
+		 return;
+	 }
+
+	 seg = NC_REQ_STAT_RANGER_MAX;
+	 for (int32_t i=0;i<NC_REQ_STAT_RANGER_MAX;i++) {
+		 if (diff < ctx->range_stats[i].kus_end) {
+			 seg = i;
+			 break;
+		 }
+	 }
+
+	 ctx->range_stats[seg].calls ++;
+	 ctx->range_stats[seg].microseconds += ( diff );
+
+
+	 if (diff >= ctx->slowms) {
+		    req_type = msg_type_string(pmsg->type);
+		 	//log_error ("slowms %d msg_type:%.*s ", diff, req_type->len, req_type->data);
+		 	log_debug(LOG_ERR, "slowms %d  %.*s %llu resp_usec %llu usec %llu seg:%d", pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t, diff, seg);
+	 }
+
+}

@@ -978,6 +978,7 @@ server_pool_each_set_owner(void *elem, void *data)
     return NC_OK;
 }
 
+
 static rstatus_t
 server_pool_each_calc_connections(void *elem, void *data)
 {
@@ -986,6 +987,9 @@ server_pool_each_calc_connections(void *elem, void *data)
 
     ctx->max_nsconn += sp->server_connections * array_n(&sp->server);
     ctx->max_nsconn += 1; /* pool listening socket */
+    if (sp->slowms > ctx->slowms) {
+    	ctx->slowms     = sp->slowms;
+    }
 
     return NC_OK;
 }

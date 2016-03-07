@@ -185,9 +185,7 @@ struct server_pool {
     unsigned           b_redis_pass:1;       /* if access backends redis servers need password? */
     unsigned           b_prefix_tag:1;       /* if this twemproxy with prefix_tag*/
     unsigned           status:2;             /* 0:nouse, 1:notrans ,2:transing, 3:trans done */
-
-
-
+    uint32_t           slowms;               /* slowms, will copy to ctx->slowms */
 };
 
 void server_ref(struct conn *conn, void *owner);

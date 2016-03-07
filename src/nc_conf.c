@@ -126,6 +126,11 @@ static struct command conf_commands[] = {
         conf_get_string,
         offsetof(struct conf_pool, prefix_tag) },
 
+	  { string("slowms"),
+	     conf_set_num,
+	     conf_get_num,
+	     offsetof(struct conf_pool, slowms) },
+
       null_command
 
 
@@ -236,6 +241,8 @@ conf_pool_init(struct conf_pool *cp, struct string *name)
     cp->server_connections = CONF_UNSET_NUM;
     cp->server_retry_timeout = CONF_UNSET_NUM;
     cp->server_failure_limit = CONF_UNSET_NUM;
+    cp->slowms = CONF_UNSET_NUM;
+
 
     array_null(&cp->server);
 
@@ -333,6 +340,8 @@ conf_pool_each_transform(void *elem, void *data)
     sp->server_failure_limit = (uint32_t)cp->server_failure_limit;
     sp->auto_eject_hosts = cp->auto_eject_hosts ? 1 : 0;
     sp->preconnect = cp->preconnect ? 1 : 0;
+    sp->slowms = cp->slowms;
+
     pthread_mutex_init(&sp->mutex, NULL);
 
 
@@ -1307,6 +1316,11 @@ conf_validate_pool(struct conf *cf, struct conf_pool *cp)
         cp->server_failure_limit = CONF_DEFAULT_SERVER_FAILURE_LIMIT;
     }
 
+
+    if (cp->slowms == CONF_UNSET_NUM) {
+        cp->slowms = CONF_DEFAULT_SLOWMS;
+    }
+
     status = conf_validate_server(cf, cp);
     if (status != NC_OK) {
         return status;
@@ -1728,8 +1742,8 @@ conf_set_num(struct conf *cf, struct command *cmd, void *conf)
     struct string *value;
 
     p = conf;
+    log_error ("conf_set_num %.*s %p %d", cmd->name.len, cmd->name.data, p,  cmd->offset);
     np = (int *)(p + cmd->offset);
-
     if (*np != CONF_UNSET_NUM) {
         return "is a duplicate";
     }

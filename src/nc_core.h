@@ -69,6 +69,8 @@
 
 #define NC_MAX_NSERVER 10240 /*FOR SERVER POOL*/
 
+#define NC_REQ_STAT_RANGER_MAX 16
+
 typedef int rstatus_t; /* return type */
 typedef int err_t;     /* error type */
 
@@ -120,6 +122,17 @@ struct event_base;
 #include <nc_message.h>
 #include <nc_connection.h>
 #include <nc_server.h>
+#include <sds.h>
+
+
+struct reqCommand {
+    char *name;
+    long long microseconds, calls;
+    int32_t kus_start, kus_end;
+};
+
+
+//struct reqCommand reqStatTable[MSG_REQ_MAX_VALUE] = {};
 
 struct context {
     uint32_t           id;          /* unique context id */
@@ -134,6 +147,9 @@ struct context {
     uint32_t           max_nfd;     /* max # files */
     uint32_t           max_ncconn;  /* max # client connections */
     uint32_t           max_nsconn;  /* max # server connections */
+    uint32_t           slowms;
+    struct reqCommand  *req_stats;   /* item num: enum last item, REQ_MAX_VALUE */
+    struct reqCommand  range_stats[NC_REQ_STAT_RANGER_MAX] ; /* ranger status [0us, 1000us 2000us 4000us 8000us 16000us 32000us 64000us 128ms 256ms 512ms 1024ms 2048m 4096ms 8s 16s 32s] */
 };
 
 
@@ -157,5 +173,6 @@ void core_stop(struct context *ctx);
 rstatus_t core_core(void *arg, uint32_t events);
 rstatus_t core_loop(struct context *ctx);
 void core_close(struct context *ctx, struct conn *conn);
+
 
 #endif

@@ -117,7 +117,7 @@ static struct msg_tqh free_msgq; /* free msg q */
 static struct rbtree tmo_rbt;    /* timeout rbtree */
 static struct rbnode tmo_rbs;    /* timeout rbtree sentinel */
 
-#define DEFINE_ACTION(_name) string(#_name),
+#define DEFINE_ACTION(_name, _string) string(#_string),
 static struct string msg_type_strings[] = {
     MSG_TYPE_CODEC( DEFINE_ACTION )
     null_string
@@ -296,7 +296,7 @@ msg_get(struct conn *conn, bool request, bool redis)
     msg->owner = conn;
     msg->request = request ? 1 : 0;
     msg->redis = redis ? 1 : 0;
-    msg->recv_time = 0;
+    msg->recv_usec = 0;
 
     if (redis) {
         if (request) {

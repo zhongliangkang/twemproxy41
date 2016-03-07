@@ -232,4 +232,8 @@ rstatus_t stats_server_add_one (struct array *stats_server, struct array *server
 rstatus_t stats_pool_change_server_name(struct server_pool *pool, uint32_t idx, char *name);
 rstatus_t stats_server_change_name(struct array *stats_server,  uint32_t idx, char *name);
 
+
+void stat_req_incr  (struct context *ctx, struct msg *pmsg) ;
+
+
 #endif
