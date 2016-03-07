@@ -1488,7 +1488,7 @@ _stats_server_set_ts(struct context *ctx, struct server *server,
 void
 stat_req_incr  (struct context *ctx, struct msg *pmsg)
 {
-	int32_t seg;
+	int32_t seg,i;
 	int64_t t, diff;
 	struct string *req_type = NULL;
 
@@ -1496,9 +1496,9 @@ stat_req_incr  (struct context *ctx, struct msg *pmsg)
 		 return;
 	 }
 	 t =  nc_usec_now();
-     diff =   t- pmsg->recv_usec;
+         diff =   t- pmsg->recv_usec;
 
-     ctx->req_stats[pmsg->type].calls ++;
+         ctx->req_stats[pmsg->type].calls ++;
 	 ctx->req_stats[pmsg->type].microseconds += ( diff );
 
 	 if (diff < 0) {
@@ -1507,7 +1507,7 @@ stat_req_incr  (struct context *ctx, struct msg *pmsg)
 	 }
 
 	 seg = NC_REQ_STAT_RANGER_MAX;
-	 for (int32_t i=0;i<NC_REQ_STAT_RANGER_MAX;i++) {
+	 for (i=0;i<NC_REQ_STAT_RANGER_MAX;i++) {
 		 if (diff < ctx->range_stats[i].kus_end) {
 			 seg = i;
 			 break;
@@ -1519,9 +1519,8 @@ stat_req_incr  (struct context *ctx, struct msg *pmsg)
 
 
 	 if (diff >= ctx->slowms) {
-		    req_type = msg_type_string(pmsg->type);
-		 	//log_error ("slowms %d msg_type:%.*s ", diff, req_type->len, req_type->data);
-		 	log_debug(LOG_ERR, "slowms %d  %.*s %llu resp_usec %llu usec %llu seg:%d", pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t, diff, seg);
+            req_type = msg_type_string(pmsg->type);
+	    log_debug(LOG_ERR, "slowquery %d slowms:%d msg_type:%d %.*s  start_ts %llu end_ts %llu seg:%d", diff, ctx->slowms, pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t,  seg);
 	 }
 
 }

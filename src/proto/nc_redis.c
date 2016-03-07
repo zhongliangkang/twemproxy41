@@ -2794,6 +2794,7 @@ rstatus_t redis_reply(struct msg *r) {
 	char buf[64];
 	rstatus_t status;
 	sds info, info2;
+        int j ;
 	struct string *req_type;
 	const struct string msg1 = string ("-ERR Client sent AUTH, but no password is set\r\n");
 	const struct string msg_noauth = string ("-NOAUTH Authentication required.\r\n");
@@ -2810,7 +2811,7 @@ rstatus_t redis_reply(struct msg *r) {
 		info = sdscatprintf(info, "stat of twemproxy\r\n");
 		sp = r->owner->owner;
 
-		for (int j = 0; j < MSG_MAX_MSG; j++) {
+		for (j = 0; j < MSG_MAX_MSG; j++) {
 			struct reqCommand * c = sp->ctx->req_stats + j;
 			if (!c->calls)
 				continue;
@@ -2822,7 +2823,7 @@ rstatus_t redis_reply(struct msg *r) {
 		}
 
 
-		for (int j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
+		for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
 			struct reqCommand * c = sp->ctx->range_stats + j;
 			if (!c->calls)
 				continue;
