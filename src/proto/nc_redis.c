@@ -33,7 +33,6 @@ redis_argz(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_PING:
     case MSG_REQ_REDIS_QUIT:
-    case MSG_REQ_NC_STAT:
         return true;
 
     default:
@@ -84,6 +83,7 @@ redis_arg0(struct msg *r)
     case MSG_REQ_REDIS_GETSERVER:
     case MSG_REQ_REDIS_AUTH:
     case MSG_REQ_REDIS_INLINE_AUTH:
+    case MSG_REQ_NC_STAT:
         return true;
 
     default:
@@ -664,7 +664,7 @@ redis_parse_req(struct msg *r)
 
 
 
-                if (str4icmp(m, 'i', 'n', 'f', 'o')) {
+                if (str4icmp(m, 's', 't', 'a', 't')) {
                     r->type = MSG_REQ_NC_STAT;
                     r->noforward = 1;
                     break;
@@ -2798,6 +2798,9 @@ rstatus_t redis_reply(struct msg *r) {
 	struct string *req_type;
 	const struct string msg1 = string ("-ERR Client sent AUTH, but no password is set\r\n");
 	const struct string msg_noauth = string ("-NOAUTH Authentication required.\r\n");
+	const struct string stat_badarg = string ("-ERR bad arguments for 'stat' command.\r\n");
+	const struct string stat_clean= string("clean");
+	const struct string stat_show = string("show");
 
 	ASSERT(response != NULL);
 
@@ -2807,40 +2810,50 @@ rstatus_t redis_reply(struct msg *r) {
 
 	switch (r->type) {
 	case MSG_REQ_NC_STAT:
-		info = sdsempty();
-		info = sdscatprintf(info, "stat of twemproxy\r\n");
 		sp = r->owner->owner;
+		kpos = array_get(r->keys, 0);
+		key_len = (uint32_t) (kpos->end - kpos->start);
 
-		for (j = 0; j < MSG_MAX_MSG; j++) {
-			struct reqCommand * c = sp->ctx->req_stats + j;
-			if (!c->calls)
-				continue;
-			req_type = msg_type_string(j);
-			info = sdscatprintf(info, "cmdstat_%.*s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n", req_type->len, req_type->data, c->calls, c->microseconds,
-					(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
+		if (stat_show.len == key_len && 0 == strncasecmp((const char*) stat_show.data , (const char*) kpos->start, key_len)) {
+			info = sdsempty();
+			info = sdscatprintf(info, "stat of twemproxy\r\n");
+			sp = r->owner->owner;
 
-
-		}
-
-
-		for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
-			struct reqCommand * c = sp->ctx->range_stats + j;
-			if (!c->calls)
-				continue;
-
-			info = sdscatprintf(info, "cmdstat_ranger %d-%d:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",c->kus_start,c->kus_end, c->calls, c->microseconds,
-					(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
+			for (j = 0; j < MSG_MAX_MSG; j++) {
+				struct reqCommand * c = sp->ctx->req_stats + j;
+				if (!c->calls)
+					continue;
+				req_type = msg_type_string(j);
+				info = sdscatprintf(info, "cmdstat_%.*s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n", req_type->len, req_type->data, c->calls, c->microseconds,
+						(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
 
 
-		}
+			}
 
-		info2 = sdscatprintf(sdsempty(), "$%d\r\n%s\r\n", sdslen(info), info);
-		status = msg_append(response, (uint8_t *)info2, sdslen(info2));
-		printf ("%d %s", sdslen(info), info);
-		sdsfree(info);
-		sdsfree(info2);
-		return status;
 
+			for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
+				struct reqCommand * c = sp->ctx->range_stats + j;
+				if (!c->calls)
+					continue;
+
+				info = sdscatprintf(info, "cmdstat_ranger %d-%d:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",c->kus_start,c->kus_end, c->calls, c->microseconds,
+						(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
+
+
+			}
+
+			info2 = sdscatprintf(sdsempty(), "$%zu\r\n%s\r\n", sdslen(info), info);
+			status = msg_append(response, (uint8_t *)info2, sdslen(info2));
+			//printf ("%d %s", sdslen(info), info);
+			sdsfree(info);
+			sdsfree(info2);
+			return status;
+		} else if (stat_clean.len == key_len && 0 == strncasecmp ((const char*) stat_clean.data , (const char*) kpos->start, key_len)) {
+			return msg_append(response, (uint8_t *) "+OK\r\n", 5);
+			
+		} 
+
+		return msg_append(response, stat_badarg.data, stat_badarg.len);
 	case MSG_REQ_REDIS_PING:
 		return msg_append(response, (uint8_t *) "+PONG\r\n", 7);
 
