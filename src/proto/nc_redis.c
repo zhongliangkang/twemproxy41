@@ -2814,7 +2814,7 @@ rstatus_t redis_reply(struct msg *r) {
 		kpos = array_get(r->keys, 0);
 		key_len = (uint32_t) (kpos->end - kpos->start);
 
-		if (stat_show.len == key_len && 0 == strncasecmp((const char*) stat_show.data , (const char*) kpos->start, key_len)) {
+		if (stat_show.len == key_len && 0 == strncasecmp((const char*) stat_show.data, (const char*) kpos->start, key_len)) {
 			info = sdsempty();
 			info = sdscatprintf(info, "stat of twemproxy\r\n");
 			sp = r->owner->owner;
@@ -2827,31 +2827,37 @@ rstatus_t redis_reply(struct msg *r) {
 				info = sdscatprintf(info, "cmdstat_%.*s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n", req_type->len, req_type->data, c->calls, c->microseconds,
 						(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
 
-
 			}
-
 
 			for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
 				struct reqCommand * c = sp->ctx->range_stats + j;
 				if (!c->calls)
 					continue;
 
-				info = sdscatprintf(info, "cmdstat_ranger %d-%d:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",c->kus_start,c->kus_end, c->calls, c->microseconds,
-						(c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
-
+				info = sdscatprintf(info, "cmdstat_ranger %d-%d:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n", c->kus_start, c->kus_end, c->calls,
+						c->microseconds, (c->calls == 0) ? 0 : ((float) c->microseconds / c->calls));
 
 			}
 
 			info2 = sdscatprintf(sdsempty(), "$%zu\r\n%s\r\n", sdslen(info), info);
-			status = msg_append(response, (uint8_t *)info2, sdslen(info2));
+			status = msg_append(response, (uint8_t *) info2, sdslen(info2));
 			//printf ("%d %s", sdslen(info), info);
 			sdsfree(info);
 			sdsfree(info2);
 			return status;
-		} else if (stat_clean.len == key_len && 0 == strncasecmp ((const char*) stat_clean.data , (const char*) kpos->start, key_len)) {
+		} else if (stat_clean.len == key_len && 0 == strncasecmp((const char*) stat_clean.data, (const char*) kpos->start, key_len)) {
+			for (j = 0; j < MSG_MAX_MSG; j++) {
+				struct reqCommand * c = sp->ctx->req_stats + j;
+				c->microseconds = 0;
+				c->calls = 0;
+			}
+			for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
+				struct reqCommand * c = sp->ctx->range_stats + j;
+				c->microseconds = 0;
+				c->calls = 0;
+			}
 			return msg_append(response, (uint8_t *) "+OK\r\n", 5);
-			
-		} 
+		}
 
 		return msg_append(response, stat_badarg.data, stat_badarg.len);
 	case MSG_REQ_REDIS_PING:
