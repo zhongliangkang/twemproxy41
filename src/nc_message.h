@@ -295,6 +295,7 @@ uint64_t msg_gen_frag_id(void);
 uint32_t msg_backend_idx(struct msg *msg, uint8_t *key, uint32_t keylen);
 struct mbuf *msg_ensure_mbuf(struct msg *msg, size_t len);
 rstatus_t msg_append(struct msg *msg, uint8_t *pos, size_t n);
+rstatus_t msg_append_longstr(struct msg *msg, uint8_t *pos, size_t n);
 rstatus_t msg_prepend(struct msg *msg, uint8_t *pos, size_t n);
 rstatus_t msg_prepend_format(struct msg *msg, const char *fmt, ...);
 

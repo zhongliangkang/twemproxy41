@@ -2816,7 +2816,9 @@ rstatus_t redis_reply(struct msg *r) {
 
 		if (stat_show.len == key_len && 0 == strncasecmp((const char*) stat_show.data, (const char*) kpos->start, key_len)) {
 			info = sdsempty();
-			info = sdscatprintf(info, "stat of twemproxy\r\n");
+			for (j=0;j<100;j++) {
+				info = sdscatprintf(info, "stat of twemproxy\r\n");
+			}
 			sp = r->owner->owner;
 
 			for (j = 0; j < MSG_MAX_MSG; j++) {
@@ -2840,7 +2842,7 @@ rstatus_t redis_reply(struct msg *r) {
 			}
 
 			info2 = sdscatprintf(sdsempty(), "$%zu\r\n%s\r\n", sdslen(info), info);
-			status = msg_append(response, (uint8_t *) info2, sdslen(info2));
+			status = msg_append_longstr(response, (uint8_t *) info2, sdslen(info2));
 			//printf ("%d %s", sdslen(info), info);
 			sdsfree(info);
 			sdsfree(info2);

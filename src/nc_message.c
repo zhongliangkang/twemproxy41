@@ -559,6 +559,39 @@ msg_append(struct msg *msg, uint8_t *pos, size_t n)
     return NC_OK;
 }
 
+
+
+/*
+ * append big(big than a mbuf) content into msg
+ */
+rstatus_t
+msg_append_longstr (struct msg *msg, uint8_t *pos, size_t n)
+{
+    struct mbuf *mbuf;
+    uint32_t size ;
+    uint32_t ncp ;
+
+//    ASSERT(n <= mbuf_data_size());
+    mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
+    while (n > 0) {
+		if (mbuf == NULL || mbuf_full(mbuf)) {
+			mbuf = mbuf_get();
+			if (mbuf == NULL) {
+				return NC_ENOMEM;
+			}
+			mbuf_insert(&msg->mhdr, mbuf);
+			size = mbuf_size(mbuf);
+			ncp = (n <= size ) ? n:size;
+			mbuf_copy(mbuf, pos, ncp);
+			pos += ncp;
+			msg->mlen += (uint32_t) ncp;
+			n -= ncp;
+		}
+    }
+    return NC_OK;
+}
+
+
 /*
  * prepend small(small than a mbuf) content into msg
  */
