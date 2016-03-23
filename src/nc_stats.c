@@ -1518,7 +1518,7 @@ stat_req_incr  (struct context *ctx, struct msg *pmsg)
 	 ctx->range_stats[seg].microseconds += ( diff );
 
 
-	 if (diff >= ctx->slowms) {
+	 if (ctx->slowms > 0 && diff >= ctx->slowms) {
             req_type = msg_type_string(pmsg->type);
 	    log_debug(LOG_ERR, "slowquery %d slowms:%d msg_type:%d %.*s  start_ts %llu end_ts %llu seg:%d", diff, ctx->slowms, pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t,  seg);
 	 }

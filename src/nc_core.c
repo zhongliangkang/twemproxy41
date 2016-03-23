@@ -101,7 +101,7 @@ core_ctx_create(struct instance *nci)
     	ctx->range_stats[i].kus_start =  (int32_t)  1000 *( 1<< (i-1));
     	ctx->range_stats[i].kus_end   =  (int32_t)  1000 *( 1<< (i));
 
-       	log_error("set range_stats %d %d %d", i, ctx->range_stats[i].kus_start, ctx->range_stats[i].kus_end);
+//      log_error("set range_stats %d %d %d", i, ctx->range_stats[i].kus_start, ctx->range_stats[i].kus_end);
     	ctx->range_stats[i].microseconds = 0;
     	ctx->range_stats[i].calls = 0;
     }

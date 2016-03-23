@@ -1742,7 +1742,7 @@ conf_set_num(struct conf *cf, struct command *cmd, void *conf)
     struct string *value;
 
     p = conf;
-    log_error ("conf_set_num %.*s %p %d", cmd->name.len, cmd->name.data, p,  cmd->offset);
+//  log_error ("conf_set_num %.*s %p %d", cmd->name.len, cmd->name.data, p,  cmd->offset);
     np = (int *)(p + cmd->offset);
     if (*np != CONF_UNSET_NUM) {
         return "is a duplicate";
