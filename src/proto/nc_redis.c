@@ -83,7 +83,7 @@ redis_arg0(struct msg *r)
     case MSG_REQ_REDIS_GETSERVER:
     case MSG_REQ_REDIS_AUTH:
     case MSG_REQ_REDIS_INLINE_AUTH:
-    case MSG_REQ_NC_STAT:
+    case MSG_REQ_NC_CMDSTAT:
         return true;
 
     default:
@@ -664,12 +664,6 @@ redis_parse_req(struct msg *r)
 
 
 
-                if (str4icmp(m, 's', 't', 'a', 't')) {
-                    r->type = MSG_REQ_NC_STAT;
-                    r->noforward = 1;
-                    break;
-                }
-
                 break;
 
             case 5:
@@ -930,6 +924,11 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str7icmp(m, 'c','m','d','s', 't', 'a', 't')) {
+                    r->type = MSG_REQ_NC_CMDSTAT;
+                    r->noforward = 1;
+                    break;
+                }
                 break;
 
             case 8:
@@ -2809,16 +2808,16 @@ rstatus_t redis_reply(struct msg *r) {
 	}
 
 	switch (r->type) {
-	case MSG_REQ_NC_STAT:
+	case MSG_REQ_NC_CMDSTAT:
 		sp = r->owner->owner;
 		kpos = array_get(r->keys, 0);
 		key_len = (uint32_t) (kpos->end - kpos->start);
 
 		if (stat_show.len == key_len && 0 == strncasecmp((const char*) stat_show.data, (const char*) kpos->start, key_len)) {
 			info = sdsempty();
-			for (j=0;j<100;j++) {
-				info = sdscatprintf(info, "stat of twemproxy\r\n");
-			}
+
+			info = sdscatprintf(info, "stat of twemproxy\r\n");
+
 			sp = r->owner->owner;
 
 			for (j = 0; j < MSG_MAX_MSG; j++) {

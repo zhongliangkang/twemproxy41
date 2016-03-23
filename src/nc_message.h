@@ -177,7 +177,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_MGET_SINGLE_REDIS, mget_single_redis )                                                  \
     ACTION( REQ_REDIS_REDIRECT,redirect  )                                                                    \
     ACTION( REQ_REDIS_ECHO, echo )                                                                              \
-    ACTION( REQ_NC_STAT, stat )                                                                              \
+    ACTION( REQ_NC_CMDSTAT, cmdstat )                                                                              \
     ACTION( SENTINEL, sentinel )                                                                              \
 
 
