@@ -7,7 +7,7 @@ OBJ=net.o hiredis.o sds.o async.o
 #nc_log.o nc_util.o nc_string.o
 #EXAMPLES=hiredis-example hiredis-example-libevent hiredis-example-libev transfer
 EXAMPLES=hiredis-example 
-TESTS=transfer create_key docmd fix
+TESTS=transfer create_key docmd fix org_fix
 LIBNAME=libhiredis
 
 HIREDIS_MAJOR=0
@@ -123,6 +123,9 @@ transfer: transfer.o $(STLIBNAME)
 	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
 
 fix: fix.o $(STLIBNAME) 
+	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
+
+org_fix: org_fix.o $(STLIBNAME) 
 	$(CC) -lpthread -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME) 
 
 test: hiredis-test
