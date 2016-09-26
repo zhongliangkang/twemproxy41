@@ -149,7 +149,7 @@ struct context {
     uint32_t           max_nsconn;  /* max # server connections */
     uint32_t           slowms;
     struct reqCommand  *req_stats;   /* item num: enum last item, REQ_MAX_VALUE */
-    struct reqCommand  range_stats[NC_REQ_STAT_RANGER_MAX] ; /* ranger status [0us, 1000us 2000us 4000us 8000us 16000us 32000us 64000us 128ms 256ms 512ms 1024ms 2048m 4096ms 8s 16s 32s] */
+    struct reqCommand  range_stats[NC_REQ_STAT_RANGER_MAX+1] ; /* ranger status [0us, 1000us 2000us 4000us 8000us 16000us 32000us 64000us 128ms 256ms 512ms 1024ms 2048m 4096ms 8s 16s 32s] */
 };
 
 

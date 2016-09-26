@@ -97,7 +97,7 @@ core_ctx_create(struct instance *nci)
     }
 
 
-    for (i=0;i<NC_REQ_STAT_RANGER_MAX;i++) {
+    for (i=0;i<=NC_REQ_STAT_RANGER_MAX;i++) {
     	ctx->range_stats[i].kus_start =  (int32_t)  1000 *( 1<< (i-1));
     	ctx->range_stats[i].kus_end   =  (int32_t)  1000 *( 1<< (i));
 

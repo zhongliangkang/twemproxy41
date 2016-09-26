@@ -2835,7 +2835,7 @@ rstatus_t redis_reply(struct msg *r) {
 
 			}
 
-			for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
+			for (j = 0; j <= NC_REQ_STAT_RANGER_MAX; j++) {
 				struct reqCommand * c = sp->ctx->range_stats + j;
 				if (!c->calls)
 					continue;
@@ -2857,7 +2857,7 @@ rstatus_t redis_reply(struct msg *r) {
 				c->microseconds = 0;
 				c->calls = 0;
 			}
-			for (j = 0; j < NC_REQ_STAT_RANGER_MAX; j++) {
+			for (j = 0; j <= NC_REQ_STAT_RANGER_MAX; j++) {
 				struct reqCommand * c = sp->ctx->range_stats + j;
 				c->microseconds = 0;
 				c->calls = 0;

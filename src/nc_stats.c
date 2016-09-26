@@ -1507,7 +1507,7 @@ stat_req_incr  (struct context *ctx, struct msg *pmsg)
 	 }
 
 	 seg = NC_REQ_STAT_RANGER_MAX;
-	 for (i=0;i<NC_REQ_STAT_RANGER_MAX;i++) {
+	 for (i=0;i<=NC_REQ_STAT_RANGER_MAX;i++) {
 		 if (diff < ctx->range_stats[i].kus_end) {
 			 seg = i;
 			 break;
