@@ -39,11 +39,43 @@ install_dir="/data"
 soft="twemproxy-0.2.4"
 
 
+#check if this server is docker?!
+#docker server mount the disk to /data1, but /data is int the / without mount to any dev
+
+dfinfo=`df -h`
+idata1=`echo "$dfinfo"|grep -w  "/data1"|wc -l`
+idata=`echo "$dfinfo"|grep -w "/data"|wc -l`
+idataredis=` ls -ld /data/redis/ 2>/dev/null|wc -l`
+idata1redis=`ls -ld /data1/redis/ 2>/dev/null|wc -l`
+
+if [ $idata -eq 1 ]
+then
+        echo "data dis found, use it";
+elif [ $idata -eq 0 -a $idata1 -eq 1 -a $idataredis -eq 0 ]
+then
+        echo "new docker found, no redis installed"
+        mkdir -p /data1/$soft
+        mkdir -p /data
+        ln -s /data1/$soft /data/$soft
+
+        #process dbbak dir
+        if [ -d /data/dbbak ]
+        then
+                mv /data/dbbak/ /data/dbbak.bak
+        fi
+        mkdir -p /data1/dbbak/
+        ln -s /data1/dbbak /data/dbbak;
+
+        #chown
+        chown -R mysql /data1/dbbak  /data1/redis
+fi
+
+
 rootdir="${install_dir}/$soft/$PORT/"
 logdir="$install_dir/log/"
 confpath="${rootdir}/nutcracker.$PORT.yml"
 
-mylocalip=`/sbin/ifconfig |  grep -A1 "eth" | grep "inet addr:" | awk -F: '{ print $2 }' | grep -E "^10|^192|^172" | awk '{ print $1 }'|head -n 1`
+mylocalip=`/sbin/ifconfig |  grep -A1 "eth" | grep "inet addr:" | awk -F: '{ print $2 }' | grep -E "^10\.|^192\.|^172\." | awk '{ print $1 }'|head -n 1`
 
 if [  -d "$rootdir" ];then
         echo "error: dir $rootdir already exists, exit!"
