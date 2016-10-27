@@ -247,6 +247,11 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_ZSCAN:
     case MSG_REQ_REDIS_MGET_SINGLE_REDIS:
 
+    /* New commands since TRedis 1.2.7 */
+    case MSG_REQ_REDIS_HMCAS:
+    case MSG_REQ_REDIS_HMCASV2:
+    case MSG_REQ_REDIS_HMGETVSN:
+
         return true;
 
     default:
@@ -682,6 +687,11 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str5icmp(m, 'h', 'm', 'c', 'a', 's')) {
+                    r->type = MSG_REQ_REDIS_HMCAS;
+                    break;
+                }
+
                 if (str5icmp(m, 'h', 'v', 'a', 'l', 's')) {
                     r->type = MSG_REQ_REDIS_HVALS;
                     break;
@@ -894,6 +904,11 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str7icmp(m, 'h', 'm', 'c', 'a', 's', 'v', '2')) {
+                    r->type = MSG_REQ_REDIS_HMCASV2;
+                    break;
+                }
+
                 if (str7icmp(m, 'l', 'i', 'n', 's', 'e', 'r', 't')) {
                     r->type = MSG_REQ_REDIS_LINSERT;
                     break;
@@ -949,6 +964,11 @@ redis_parse_req(struct msg *r)
 
                 if (str8icmp(m, 'h', 'm', 'g', 'e', 't', 'a', 'l', 'l')) {
                     r->type = MSG_REQ_REDIS_HMGETALL;
+                    break;
+                }
+
+                if (str8icmp(m, 'h', 'm', 'g', 'e', 't', 'v', 's', 'n')) {
+                    r->type = MSG_REQ_REDIS_HMGETVSN;
                     break;
                 }
 
@@ -2357,13 +2377,12 @@ redis_pre_coalesce(struct msg *r)
     case MSG_RSP_REDIS_BULK:
         break;
     default:
-	break;
         /*
          * Valid responses for a fragmented request are MSG_RSP_REDIS_INTEGER or,
          * MSG_RSP_REDIS_MULTIBULK. For an invalid response, we send out -ERR
          * with EINVAL errno
          */
-/*
+
         mbuf = STAILQ_FIRST(&r->mhdr);
         log_hexdump(LOG_ERR, mbuf->pos, mbuf_length(mbuf), "rsp fragment "
                     "with unknown type %d", r->type);
@@ -2372,7 +2391,7 @@ redis_pre_coalesce(struct msg *r)
 
 
         break;
-*/
+
     }
 }
 

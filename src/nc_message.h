@@ -100,6 +100,9 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_HGET, hget )                                                                        \
     ACTION( REQ_REDIS_HGETALL, hgetall )                                                                     \
     ACTION( REQ_REDIS_HMGETALL, hmgetall )                                                                     \
+    ACTION( REQ_REDIS_HMCAS, hmcas )                                                                     \
+    ACTION( REQ_REDIS_HMCASV2, hmcasv2)                                                                     \
+    ACTION( REQ_REDIS_HMGETVSN, hmgetvsn)                                                                     \
     ACTION( REQ_REDIS_HINCRBY, hincrby )                                                                     \
     ACTION( REQ_REDIS_HINCRBYFLOAT, hincrbyfloat )                                                                \
     ACTION( REQ_REDIS_HKEYS, hkeys )                                                                       \
