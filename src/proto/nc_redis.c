@@ -624,7 +624,9 @@ redis_parse_req(struct msg *r)
                 if (str4icmp(m, 'm', 's', 'e', 't')) {
                     r->type = MSG_REQ_REDIS_MSET;
                     if (r->narg % 2 != 1) {
-                    	   goto error;
+                        r->cmd_start = m;
+                        r->cmd_end= p;
+                        goto error;
                     }
                     break;
                 }
@@ -1117,10 +1119,39 @@ redis_parse_req(struct msg *r)
             }
 
             if (r->type == MSG_UNKNOWN) {
-                log_error("parsed unsupported command '%.*s'", p - m, m);
-                goto error;
+                log_error("parsed unsupported command '%.*s',r->rnarg length: %d", p - m, m,r->narg);
+                //goto error;
+                r->type =  MSG_REQ_REDIS_UNKOWN_CMD;
+                state = SW_KEY_LF;
+                // only a error command
+                if(r->narg == 1) 
+                {
+                    r->pos = b->last;
+                    r->type = MSG_REQ_REDIS_UNKOWN_CMD;
+                    r->result = MSG_PARSE_OK;
+                    r->cmd_start = m;
+                    r->cmd_end= p;
+                    r->state = SW_START;
+                    r->noforward = 1;
+                    return;
+                }
             }
 
+            /* no key given */
+            if( false ==  redis_argz(r) && r->narg == 1){
+                    r->pos = b->last;
+                    r->type = MSG_REQ_REDIS_UNKOWN_CMD;
+                    r->result = MSG_PARSE_OK;
+                    r->cmd_start = m;
+                    r->cmd_end= p;
+                    r->state = SW_START;
+                    r->noforward = 1;
+                    return;
+            }
+
+            /* record the cmd here for unkown commands */
+            r->cmd_start = m;
+            r->cmd_end= p;
             log_debug(LOG_VERB, "parsed command '%.*s'", p - m, m);
 
             state = SW_REQ_TYPE_LF;
@@ -1268,7 +1299,11 @@ redis_parse_req(struct msg *r)
                     }
                     state = SW_ARGN_LEN;
                 } else {
-                    goto error;
+                    if (r->rnarg == 0) {
+                        goto done;
+                    }
+                    state = SW_ARG1_LEN;
+                    //goto error;
                 }
 
                 break;
@@ -1686,6 +1721,10 @@ done:
     r->state = SW_START;
     r->token = NULL;
     r->result = MSG_PARSE_OK;
+    if(r->type == MSG_REQ_REDIS_UNKOWN_CMD){
+		r->pos = b->last;
+		r->noforward = 1;
+    }
 
     log_hexdump(LOG_VERB, b->pos, mbuf_length(b), "parsed req %"PRIu64" res %d "
                 "type %d state %d rpos %d of %d", r->id, r->result, r->type,
@@ -1743,14 +1782,31 @@ REQ_INLINE:
 		r->state = SW_START;
 		r->noforward = 1;
 	} else {
-		goto error;
+        /* invalid command */
+		r->pos = b->last;
+		r->type = MSG_REQ_REDIS_PROTOCAL_ERR;
+		r->result = MSG_PARSE_OK;
+		r->state = SW_START;
+		r->noforward = 1;
 	}
 	return;
 
 error:
+    /*
     r->result = MSG_PARSE_ERROR;
     r->state = state;
     errno = EINVAL;
+    */
+
+    /*
+     * 2017.2.18 
+     * for all parse error,we return a parse error and close the connection.
+     */
+    r->pos = b->last;
+    r->noforward = 1;
+    r->type = MSG_REQ_REDIS_UNKOWN_CMD;
+    r->result = MSG_PARSE_OK;
+	r->state = SW_START;
 
     log_hexdump(LOG_INFO, b->pos, mbuf_length(b), "parsed bad req %"PRIu64" "
                 "res %d type %d state %d", r->id, r->result, r->type,
@@ -2824,12 +2880,18 @@ rstatus_t redis_reply(struct msg *r) {
 	const struct string stat_badarg = string ("-ERR bad arguments for 'stat' command.\r\n");
 	const struct string stat_clean= string("clean");
 	const struct string stat_show = string("show");
+	const struct string protocal_err= string ("-ERR unkown command or protocal error\r\n");
+	const struct string unkown_cmd_err = string ("-ERR unkown command or wrong number of arguments\r\n");
 
 	ASSERT(response != NULL);
 
-	if (r->owner->authed == 0 && MSG_REQ_REDIS_AUTH != r->type && MSG_REQ_REDIS_INLINE_AUTH != r->type) {
+	if (r->owner->authed == 0 && MSG_REQ_REDIS_AUTH != r->type && MSG_REQ_REDIS_INLINE_AUTH != r->type && 
+            MSG_REQ_REDIS_UNKOWN_CMD != r->type  && MSG_REQ_REDIS_PROTOCAL_ERR != r->type) {
+        log_error("authed: %d, r->type:%d,MSG_REQ_REDIS_AUTH:%d,MSG_REQ_REDIS_INLINE_AUTH:%d,%s",r->owner->authed,r->type,MSG_REQ_REDIS_AUTH,MSG_REQ_REDIS_INLINE_AUTH,r->cmd_start);
 		return msg_append(response, msg_noauth.data, msg_noauth.len);
 	}
+		kpos = array_get(r->keys, 0);
+		key_len = (uint32_t) (kpos->end - kpos->start);
 
 	switch (r->type) {
 	case MSG_REQ_NC_CMDSTAT:
@@ -2887,6 +2949,20 @@ rstatus_t redis_reply(struct msg *r) {
 		return msg_append(response, stat_badarg.data, stat_badarg.len);
 	case MSG_REQ_REDIS_PING:
 		return msg_append(response, (uint8_t *) "+PONG\r\n", 7);
+
+	case MSG_REQ_REDIS_UNKOWN_CMD:
+        info = sdsempty();
+        if( r->cmd_start != NULL && r->cmd_end != NULL){
+            info = sdscatprintf(info, "-ERR unkown command '%.*s' or wrong number of arguments\r\n",r->cmd_end - r->cmd_start,r->cmd_start);
+        }else{
+            info = sdscatprintf(info, "-ERR unkown command or wrong number of arguments\r\n");
+        }
+		status = msg_append(response, (uint8_t *)info, sdslen(info));
+        sdsfree(info);
+        return status;
+
+    case MSG_REQ_REDIS_PROTOCAL_ERR:
+		return msg_append(response, protocal_err.data, protocal_err.len);
 
 	case MSG_REQ_REDIS_AUTH:
 		sp = r->owner->owner;

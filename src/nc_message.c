@@ -280,6 +280,9 @@ done:
     msg->transfer_status = 0;
     msg->n_hmgetall_result = 0;
 
+    msg->cmd_start = NULL;
+    msg->cmd_end= NULL;
+
     return msg;
 }
 

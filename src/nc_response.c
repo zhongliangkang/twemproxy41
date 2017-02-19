@@ -358,6 +358,12 @@ rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg)
     /* dequeue request from client outq */
     conn->dequeue_outq(ctx, conn, pmsg);
 
+    /* 2017.2.17 if the client send invalid protocal or commands, we send a error response and close the connection */
+    if( pmsg->type == MSG_REQ_REDIS_PROTOCAL_ERR){
+        log_error("invalid command or protocal:%d\n",pmsg->type);
+        conn->err = EINVAL;
+    }
+
     stat_req_incr (ctx, pmsg);
     req_put(pmsg);
 }

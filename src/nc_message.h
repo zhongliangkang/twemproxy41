@@ -176,6 +176,8 @@ typedef enum msg_parse_result {
     ACTION( RSP_REDIS_MULTIBULK, multibulk )                                                              \
     ACTION( REQ_REDIS_AUTH, auth )                                                                        \
     ACTION( REQ_REDIS_INLINE_AUTH, inline_auth )                                                             \
+    ACTION( REQ_REDIS_UNKOWN_CMD, unkown_cmd)                                                             \
+    ACTION( REQ_REDIS_PROTOCAL_ERR, protocal_err)                                                             \
     ACTION( REQ_REDIS_GETSERVER, getserver )                                                                  \
     ACTION( REQ_REDIS_MGET_SINGLE_REDIS, mget_single_redis )                                                  \
     ACTION( REQ_REDIS_REDIRECT,redirect  )                                                                    \
@@ -232,6 +234,10 @@ struct msg {
 
     uint8_t              *key_start;      /* key start */
     uint8_t              *key_end;        /* key end */
+
+    /* to record the unkown commands position */
+    uint8_t              *cmd_start;      /* key start */
+    uint8_t              *cmd_end;        /* key end */
 
     uint8_t              *v_start;        /* value start in mset sub msg */
     uint32_t             v_len;          /* value len   in mset sub msg */

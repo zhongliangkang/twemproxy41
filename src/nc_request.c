@@ -818,6 +818,10 @@ req_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
             conn->err = errno;
         }
 
+        if(msg->type == MSG_REQ_REDIS_PROTOCAL_ERR){
+            log_debug(LOG_VVERB,"MSG_REQ_REDIS_PROTOCAL_ERR type:%d\n",msg->type);
+        }
+
         return;
     }
 
