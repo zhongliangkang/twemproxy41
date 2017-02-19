@@ -2,6 +2,11 @@
 #coding: utf-8
 
 from common import *
+def get_conn():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((nc.host(), nc.port()))
+    s.settimeout(.3)
+    return s
 
 def test_setget():
     r = getconn()
@@ -10,11 +15,17 @@ def test_setget():
     assert(r.get('k') == 'v')
 
 def test_msetnx():
-    r = getconn()
+    r = get_conn()
 
     #not supported
-    keys = default_kv.keys()
-    assert_fail('Socket closed|Connection closed', r.msetnx,**default_kv)
+    #since 2017.2.19 msetnx command would return a unkown command err instead 
+    #assert_fail('Socket closed|Connection closed', r.msetnx,**default_kv)
+    req = '*3\r\n$6\r\nmsetnx\r\n$2\r\naa\r\n$2\r\nbb\r\n'
+    r.sendall(req)
+    r.settimeout(.3)
+    data = r.recv(10000)
+    print data
+    assert(data.startswith('-ERR unkown command'))
 
 def test_ping_quit():
     r = getconn()
