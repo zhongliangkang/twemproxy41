@@ -1520,7 +1520,13 @@ stat_req_incr  (struct context *ctx, struct msg *pmsg)
 
 	 if (ctx->slowms > 0 && diff >= ctx->slowms) {
             req_type = msg_type_string(pmsg->type);
-	    log_debug(LOG_ERR, "slowquery %d slowms:%d msg_type:%d %.*s  start_ts %llu end_ts %llu seg:%d", diff, ctx->slowms, pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t,  seg);
+            if(pmsg->keys != NULL && pmsg->keys->nelem >0 ){
+                struct keypos * tmp_k = pmsg->keys->elem;
+                uint32_t tmp_kl = (uint32_t)(tmp_k->end - tmp_k->start);
+                log_debug(LOG_ERR, "slowquery %d slowms:%d msg_type:%d %.*s  start_ts %llu end_ts %llu seg:%d key:%.*s", diff, ctx->slowms, pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t,  seg, tmp_kl, tmp_k->start);
+            }else{
+                log_debug(LOG_ERR, "slowquery %d slowms:%d msg_type:%d %.*s  start_ts %llu end_ts %llu seg:%d", diff, ctx->slowms, pmsg->type, req_type->len, req_type->data, pmsg->recv_usec, t,  seg);
+            }
 	 }
 
 }

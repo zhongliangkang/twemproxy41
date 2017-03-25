@@ -13,7 +13,7 @@ else
   exit 1
 fi
 
-version="twemproxy-0.4.1-v6"
+version="twemproxy-0.4.1-v7"
 mkdir -p $version
 cp -frp  pkg/*  $version
 

@@ -77,14 +77,21 @@ confpath="${rootdir}/nutcracker.$PORT.yml"
 
 mylocalip=`/sbin/ifconfig |  grep -A1 "eth" | grep "inet addr:" | awk -F: '{ print $2 }' | grep -E "^10\.|^192\.|^172\." | awk '{ print $1 }'|head -n 1`
 
+#for support 100.64/10 network special
+mylocal100=`/sbin/ifconfig |  grep -A1 "eth" | grep "inet addr:" | awk -F: '{ print $2 }' | grep -E "^100\." | awk '{ print $1 }'|head -n 1`
+
 if [  -d "$rootdir" ];then
         echo "error: dir $rootdir already exists, exit!"
         exit;
 fi
 
 mkdir -p $rootdir
-
-sed -e "s/\$PORT/$PORT/g" ../conf/nutcracker.yml |sed -e "s/\$REDIS/$REDIS/g" |sed -e "s/0.0.0.0/$mylocalip/g" > $confpath
+if [ "$mylocalip" != "" ]
+then
+    sed -e "s/\$PORT/$PORT/g" ../conf/nutcracker.yml |sed -e "s/\$REDIS/$REDIS/g" |sed -e "s/0.0.0.0/$mylocalip/g" > $confpath
+else
+    sed -e "s/\$PORT/$PORT/g" ../conf/nutcracker.yml |sed -e "s/\$REDIS/$REDIS/g" |sed -e "s/0.0.0.0/$mylocal100/g" > $confpath
+fi
 
 if [ "$TPASS" != "1" ]
 then

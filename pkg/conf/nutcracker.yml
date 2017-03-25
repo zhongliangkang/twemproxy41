@@ -1,0 +1,49 @@
+nosqlproxy:
+  listen: 0.0.0.0:$PORT
+
+  #hash algorithm 
+  hash: fnv1a_64
+
+  #distibution algorithm
+  distribution: modhash
+
+  #default tcp backlog size
+  backlog: 512
+
+  #if backends are redis or not
+  redis: $REDIS
+
+  #if preconnect to all backends;
+  preconnect: false
+
+  #if auto eject failed hosts? we disable this function by default.
+  auto_eject_hosts: false
+
+  #max connections  that can be opened to each backends server.default 1
+  server_connections: 1
+
+  #timeout value in msec to wait for before retrying on a temporarily ejected server when auto_eject_hosts is set to true.
+  server_retry_timeout: 2000
+
+  #The number of conseutive failures on a server that would leads to it being temporarily ejected when 
+  #auto_eject_host is set to true. Defaults to 2
+  server_failure_limit: 5
+
+  #twemproxy password. if set, all client connection would be asked to send auth command before read/write normally.
+  #password:
+  
+  #prefix_tag is used for store keys auto add prefix_tag for each key, eg: if prefix_tag='xx', key 'a' will store as 'xxa'
+  #prefix_tag: xx
+
+  #redis backends  password. if set,twemproxy would send a auth command to backends after each connect
+  #redis_password:
+
+  #get the slow log cost time more than slowms, in usec(1/1000000 second),default 500ms
+  slowms: 500000
+
+  #twemproxy backends info
+  servers:
+  #- IP:PORT:WEIGHT   APP   SEG_START-SEG_END STATUS
+  #- 127.0.0.1:30001:1 pvz1 100000-199999 1
+  #- 127.0.0.1:30002:1 pvz1 200000-419999 1
+  #- 127.0.0.1:30000:1 pvz1 0-99999 1
