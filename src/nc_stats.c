@@ -966,7 +966,10 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 	 * 	return the value of listen
 	 * */
 	if (!strcmp(cmd_p[0], "get") && n_field == 3) { /* get config */
-		if (!strcmp(cmd_p[2], "servers")) {
+		if (!strcmp(cmd_p[2], "password") || !strcmp(cmd_p[2], "redis_password") ) {
+			rt = NC_ERROR;
+			snprintf(result, STATS_RESULT_BUFLEN, "ERR: get command, bad segname '%s'",  cmd_p[2] );
+		} else if (!strcmp(cmd_p[2], "servers")) {
 			rt = sp_get_by_item(cmd_p[1], "server", result, st->p_sp);
 		} else if (!strcmp(cmd_p[2], "transinfo")) {
 			rt = sp_get_by_item(cmd_p[1], "transinfo", result, st->p_sp);
@@ -974,7 +977,7 @@ static rstatus_t stats_send_rsp(struct stats *st) {
 			rt = conf_get_by_item((uint8_t *) cmd_p[1], (uint8_t *) cmd_p[2], result, st->p_cf);
 		}
 		if (rt != NC_OK) {
-			log_error("err ret:%d . msg: %s\n", rt, result);
+			log_error("err ret:%d . msg: %s", rt, result);
 		}
 		n = nc_sendn(sd, result, strlen(result));
 
@@ -1055,6 +1058,8 @@ end:
 		log_error("send stats on sd %d failed: %s", sd, strerror(errno));
 		close(sd);
 		return NC_ERROR;
+	} else {
+		log_error("send %d bytes stats on sd %d",n, sd);
 	}
 
 	close(sd);
